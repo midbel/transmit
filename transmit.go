@@ -148,6 +148,7 @@ func main() {
 }
 
 func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
+	type transmitFunc func(io.WriteCloser, io.ReadCloser, int) error
 	uri, err := url.Parse(s)
 	if err != nil {
 		return err
@@ -165,6 +166,12 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	} else {
 		listener = serv
 	}
+	var f transmitFunc
+	if p {
+		f = transmit
+	} else {
+		f = reassemble
+	}
 
 	var wg sync.WaitGroup
 	for {
@@ -179,18 +186,12 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 			continue
 		}
 		wg.Add(1)
-		go func(c, g net.Conn) {
+		go func(c, g net.Conn, f transmitFunc) {
 			defer wg.Done()
-			if p {
-				if err := transmit(g, c, z); err != nil {
-					return
-				}
-			} else {
-				if err := reassemble(g, c, z); err != nil {
-					return
-				}
+			if err := f(g, c, z); err != nil {
+				return 
 			}
-		}(client, group)
+		}(client, group, f)
 	}
 	wg.Wait()
 	return nil
