@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/url"
 	"os"
@@ -30,8 +31,10 @@ options:
 	
 	-l: listen for incoming packets
 	-c: certificates to encrypt communication between agents
+	-k: keep transfered file(s) (default: remove files transfered)
 	-w: time to wait when connection failure is encountered
 	-s: size of bytes to read/write from connections
+	-t: transfer file(s)
 	-v: dump packets length + md5 on stderr
 
 arguments:
@@ -82,7 +85,7 @@ func init() {
 			Name: os.Args[0],
 		}
 		t.Execute(os.Stderr, data)
-		fmt.Fprintf(os.Stderr, "usage: %s [-p] [-l] [-c] [-w] <local> <remote>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-p] [-t] [-k] [-l] [-c] [-w] <local> <remote>\n", os.Args[0])
 		return
 	}
 }
@@ -91,6 +94,8 @@ func main() {
 	config := struct {
 		Listen      bool
 		Verbose     bool
+		Transfer    bool
+		Keep        bool
 		Proxy       bool
 		Size        int
 		Interface   string
@@ -99,8 +104,10 @@ func main() {
 	}{}
 
 	flag.IntVar(&config.Size, "s", DefaultBufferSize, "size")
-	flag.BoolVar(&config.Verbose, "v", false, "")
+	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&config.Listen, "l", false, "listen")
+	flag.BoolVar(&config.Keep, "k", false, "keep")
+	flag.BoolVar(&config.Transfer, "t", false, "transfer")
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
 	flag.StringVar(&config.Interface, "i", "eth0", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
@@ -126,10 +133,12 @@ func main() {
 	}
 
 	var err error
-	switch s, d := flag.Arg(0), flag.Arg(1); config.Listen {
-	case true:
+	switch s, d := flag.Arg(0), flag.Arg(1); {
+	case config.Listen:
 		err = runGateway(s, d, config.Size, config.Verbose, config.Proxy, cfg)
-	case false:
+	case config.Transfer:
+		err = runTransfer(s, d, config.Size, config.Keep, cfg)
+	default:
 		err = runRelay(s, d, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
 	}
 	if err != nil {
@@ -184,6 +193,45 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 		}(client, group)
 	}
 	wg.Wait()
+	return nil
+}
+
+func runTransfer(s, d string, z int, k bool, c *tls.Config) error {
+	var client net.Conn
+	for i := 0; i < 5; i++ {
+		if c, err := openClient(d, false); err != nil {
+			time.Sleep(time.Second * time.Duration(i))
+			continue
+		} else {
+			client = c
+		}
+	}
+	if client == nil {
+		return fmt.Errorf("connection to %s failed after 5 retries", d)
+	}
+	if c != nil {
+		c.InsecureSkipVerify = true
+		client = tls.Client(client, c)
+	}
+	infos, err := ioutil.ReadDir(s)
+	if err != nil {
+		return err
+	}
+	for _, i := range infos {
+		f, err := os.Open(filepath.Join(s, i.Name()))
+		if err != nil {
+			return err
+		}
+		buf := make([]byte, z)
+		if _, err := io.CopyBuffer(client, f, buf); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+		if !k {
+			os.Remove(s)
+		}
+	}
 	return nil
 }
 
