@@ -68,25 +68,26 @@ func New(urls []string, size int) (*pool, error) {
 //the pool is closed and ErrInvalidErr if the tag can not be found. An net.Error
 //is returned when a new net.Conn fails to be created.
 func (p *pool) Acquire(t byte) (net.Conn, error) {
-	if q, ok := p.conns[t]; ok {
-		var client net.Conn
-		select {
-		case c, ok := <-q:
-			if !ok {
-				return nil, ErrPoolClosed
-			}
-			client = c
-		default:
-			uri := p.urls[t]
-			c, err := net.Dial(uri.Scheme, uri.Host)
-			if err != nil {
-				return nil, err
-			}
-			client = c
-		}
-		return client, nil
+	q, ok := p.conns[t]
+	if !ok {
+		return nil, ErrInvalidTag
 	}
-	return nil, ErrInvalidTag
+	var client net.Conn
+	select {
+	case c, ok := <-q:
+		if !ok {
+			return nil, ErrPoolClosed
+		}
+		client = c
+	default:
+		uri := p.urls[t]
+		c, err := net.Dial(uri.Scheme, uri.Host)
+		if err != nil {
+			return nil, err
+		}
+		client = c
+	}
+	return client, nil
 }
 
 func (p *pool) Release(t byte, c net.Conn) error {
