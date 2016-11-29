@@ -165,7 +165,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer p.Close()
-		
+
 		var counter uint64
 	Loop:
 		for buf := range queue {
@@ -188,7 +188,7 @@ func main() {
 						return
 					}
 					t := time.Now().Format("20060102_150405")
-					f, err := os.Create(filepath.Join(datadir, t + ".dat"))
+					f, err := os.Create(filepath.Join(datadir, t+".dat"))
 					if err != nil {
 						return
 					}
