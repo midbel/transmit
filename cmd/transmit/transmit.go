@@ -239,7 +239,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 			}
 			copyFiles(client, s, v, k, t, split)
 			<-sema
-		case <-time.After(time.Millisecond * 5):
+		case <-time.After(time.Millisecond * 3):
 			continue
 		}
 	}
@@ -297,7 +297,7 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 		var client net.Conn
 		for i := 0; i < 5; i++ {
 			if c, err := openClient(d, false); err != nil {
-				time.Sleep(time.Second * time.Duration(i))
+				time.Sleep(time.Second * time.Duration(i * 3))
 				continue
 			} else {
 				client = c
