@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const DefaultBufferSize = 1024
+const defaultBufferSize = 1024
 
 //Common error types.
 var (
@@ -264,7 +264,7 @@ func recv(c net.Conn, queue chan []byte, z int, wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 	if z <= 0 {
-		z = DefaultBufferSize
+		z = defaultBufferSize
 	}
 
 	var buf bytes.Buffer
