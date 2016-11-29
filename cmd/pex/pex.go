@@ -142,7 +142,8 @@ func main() {
 		Size    int
 		Count   int
 		Datadir string
-	}{}
+	}{Size: defaultBufferSize, Count: 5}
+
 	flag.StringVar(&config.Datadir, "d", config.Datadir, "data dir")
 	flag.BoolVar(&config.Verbose, "v", config.Verbose, "verbose")
 	flag.IntVar(&config.Size, "s", config.Size, "size")
@@ -183,7 +184,7 @@ func main() {
 
 func transmit(p *pool, queue <-chan []byte, d string, v bool) {
 	var counter uint64
-	Loop:
+Loop:
 	for buf := range queue {
 		if len(buf) == 0 {
 			continue
