@@ -218,6 +218,12 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	return nil
 }
 
+//Starts transmit to transfer at regular interval (specified by w) files stored
+//into s to d. If k is given and true, transmit will keep the files into s
+//otherwise, it will delete them from s (this is the prefer way of working).
+//
+//If v is given, transmit will dump on stderr a timestamp, a counter, the size
+//of the ressambled packets and its md5 sum.
 func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Config) error {
 	var client net.Conn
 
