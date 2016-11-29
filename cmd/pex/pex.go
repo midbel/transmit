@@ -184,13 +184,16 @@ func main() {
 				break Loop
 			case err == ErrInvalidTag && config.Datadir != "":
 				go func(datadir string, chunk []byte) {
+					if len(chunk) == 0 {
+						return
+					}
 					t := time.Now().Format("20060102_150405")
 					f, err := os.Create(filepath.Join(datadir, t + ".dat"))
 					if err != nil {
 						return
 					}
 					defer f.Close()
-					f.Write(buf)
+					f.Write(chunk)
 				}(config.Datadir, buf[:])
 			case err == nil:
 				if _, err := c.Write(buf); err == nil {
