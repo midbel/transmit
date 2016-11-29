@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"crypto/tls"
@@ -140,7 +141,7 @@ func main() {
 	case config.Listen:
 		err = runGateway(s, d, config.Size, config.Verbose, config.Proxy, cfg)
 	case config.Transfer:
-		err = runTransfer(s, d, config.Size, config.Keep, config.Wait, cfg)
+		err = runTransfer(s, d, config.Size, config.Keep, config.Verbose, config.Wait, cfg)
 	default:
 		err = runRelay(s, d, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
 	}
@@ -192,7 +193,7 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 		go func(c, g net.Conn, f transmitFunc) {
 			defer wg.Done()
 			if err := f(g, c, z); err != nil {
-				return 
+				return
 			}
 		}(client, group, f)
 	}
@@ -200,44 +201,87 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	return nil
 }
 
-func runTransfer(s, d string, z int, k bool, w time.Duration, c *tls.Config) error {
+func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Config) error {
 	var client net.Conn
+
+	if z <= 0 {
+		z = DefaultBufferSize
+	}
+
+	split := func(buf []byte, ateof bool) (int, []byte, error) {
+		if len(buf) < z && !ateof {
+			return 0, nil, nil
+		}
+		return z, buf[:z], nil
+	}
+
 	t := time.NewTicker(w)
 	defer t.Stop()
-	for range t.C {
-		for i := 0; i < 5; i++ {
-			if c, err := openClient(d, false); err != nil {
-				time.Sleep(time.Second * time.Duration(i))
-				continue
-			} else {
-				client = c
+
+	sema := make(chan struct{}, 1)
+	for t := range t.C {
+		select {
+		case sema <- struct{}{}:
+			for i := 0; i < 5; i++ {
+				if c, err := openClient(d, false); err != nil {
+					time.Sleep(time.Second * time.Duration(i))
+					continue
+				} else {
+					client = c
+				}
 			}
-		}
-		if client == nil {
+			if client == nil {
+				continue
+			}
+			if c != nil {
+				c.InsecureSkipVerify = true
+				client = tls.Client(client, c)
+			}
+			copyFiles(client, s, v, k, t, split)
+			<-sema
+		case <-time.After(time.Millisecond * 5):
 			continue
 		}
-		if c != nil {
-			c.InsecureSkipVerify = true
-			client = tls.Client(client, c)
-		}
-		infos, err := ioutil.ReadDir(s)
+	}
+	return nil
+}
+
+func copyFiles(c net.Conn, s string, v, k bool, t time.Time, split bufio.SplitFunc) error {
+	defer c.Close()
+	infos, err := ioutil.ReadDir(s)
+	if err != nil {
+		return err
+	}
+	var counter uint64
+	for _, i := range infos {
+		f, err := os.Open(filepath.Join(s, i.Name()))
 		if err != nil {
 			continue
 		}
-		for _, i := range infos {
-			f, err := os.Open(filepath.Join(s, i.Name()))
-			if err != nil {
-				continue
+		s := bufio.NewScanner(f)
+		s.Split(split)
+
+		sum := md5.New()
+		counter++
+
+		var size int
+		for s.Scan() {
+			if err = s.Err(); err != nil {
+				break
 			}
-			buf := make([]byte, z)
-			if _, err := io.CopyBuffer(client, f, buf); err != nil {
-				f.Close()
-				continue
+			buf := s.Bytes()
+			size += len(buf)
+			sum.Write(buf)
+			if _, err = c.Write(buf); err != nil {
+				break
 			}
-			f.Close()
-			if !k {
-				os.Remove(s)
-			}
+		}
+		f.Close()
+		if !k && err == nil {
+			os.Remove(f.Name())
+		}
+		if v {
+			go fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", t.Format(time.RFC3339), counter, size, sum.Sum(nil))
 		}
 	}
 	return nil
@@ -310,17 +354,27 @@ func reassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
 	if s <= 0 {
 		s = DefaultBufferSize
 	}
-	var buf bytes.Buffer
+	var (
+		buf   bytes.Buffer
+		abort bool
+	)
 	for {
 		chunk := make([]byte, s)
 		c, err := r.Read(chunk)
-		if err != nil {
+		switch {
+		case err == io.EOF && buf.Len() > 0:
+			abort = true
+		case err != nil:
 			return err
 		}
+
 		if c < s {
 			buf.Write(chunk[:c])
 			if _, err := io.Copy(w, &buf); err != nil {
 				return err
+			}
+			if abort {
+				return io.EOF
 			}
 		} else {
 			buf.Write(chunk)
