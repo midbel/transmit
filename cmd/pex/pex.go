@@ -96,18 +96,16 @@ func (p *pool) Release(t byte, c net.Conn) error {
 	if p.closed {
 		return c.Close()
 	}
-
-	if q, ok := p.conns[t]; ok {
-		var err error
-		select {
-		case q <- c:
-			break
-		default:
-			err = c.Close()
-		}
-		return err
+	q, ok := p.conns[t]
+	if !ok {
+		return ErrInvalidTag
 	}
-	return ErrInvalidTag
+	select {
+	case q <- c:
+		return nil
+	default:
+		return c.Close()
+	}
 }
 
 func (p *pool) Close() error {
