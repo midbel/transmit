@@ -255,6 +255,7 @@ func recv(c net.Conn, queue chan []byte, z int, wg *sync.WaitGroup) {
 	var buf bytes.Buffer
 	for {
 		var abort bool
+	Loop:
 		for {
 			chunk := make([]byte, z)
 			r, err := c.Read(chunk)
@@ -263,7 +264,7 @@ func recv(c net.Conn, queue chan []byte, z int, wg *sync.WaitGroup) {
 				abort = true
 			case err != nil:
 				buf.Reset()
-				break
+				break Loop
 			}
 			buf.Write(chunk[:r])
 			if r < z {
