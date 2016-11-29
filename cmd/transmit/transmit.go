@@ -48,7 +48,7 @@ arguments:
 
 `
 
-const DefaultBufferSize = 1024
+const defaultBufferSize = 1024
 
 type conn struct {
 	net.Conn
@@ -107,7 +107,7 @@ func main() {
 		Wait        time.Duration
 	}{}
 
-	flag.IntVar(&config.Size, "s", DefaultBufferSize, "size")
+	flag.IntVar(&config.Size, "s", defaultBufferSize, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&config.Listen, "l", false, "listen")
 	flag.BoolVar(&config.Keep, "k", false, "keep")
@@ -221,7 +221,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 	var client net.Conn
 
 	if z <= 0 {
-		z = DefaultBufferSize
+		z = defaultBufferSize
 	}
 
 	split := func(buf []byte, ateof bool) (int, []byte, error) {
@@ -341,7 +341,7 @@ func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
 		r.Close()
 	}()
 	if s <= 0 {
-		s = DefaultBufferSize
+		s = defaultBufferSize
 	}
 
 	for {
@@ -371,7 +371,7 @@ func reassemble(w io.WriteCloser, r io.ReadCloser, s int, p bool) error {
 		r.Close()
 	}()
 	if s <= 0 {
-		s = DefaultBufferSize
+		s = defaultBufferSize
 	}
 	var (
 		buf   bytes.Buffer
@@ -407,7 +407,7 @@ func transmit(w io.WriteCloser, r io.ReadCloser, s int) error {
 		r.Close()
 	}()
 	if s <= 0 {
-		s = DefaultBufferSize
+		s = defaultBufferSize
 	}
 	buf := make([]byte, s)
 	for {
