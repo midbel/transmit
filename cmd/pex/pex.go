@@ -39,7 +39,7 @@ type pool struct {
 	closed bool
 }
 
-//New creates a new pool from urls settings for each urls a channel of net.Conn
+//New creates a new pool from urls setting for each urls a channel of net.Conn
 //with cap of size.
 func New(urls []string, size int) (*pool, error) {
 	if size <= 0 {
@@ -66,7 +66,7 @@ func New(urls []string, size int) (*pool, error) {
 
 //Acquire returns a net.Conn for the given tag. ErrPoolClosed is returned if
 //the pool is closed and ErrInvalidErr if the tag can not be found. An net.Error
-//is returned when a new net.Conn should be created and fail.
+//is returned when a new net.Conn fails to be created.
 func (p *pool) Acquire(t byte) (net.Conn, error) {
 	if q, ok := p.conns[t]; ok {
 		var client net.Conn
