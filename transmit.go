@@ -27,6 +27,9 @@ to another which missed connectivity with the former.
 Its original goal is to be able to forward packets from multicast groups
 through firewalls that allow only outgoing TCP/TLS connections.
 
+{{.Name}} can also be used to transfer files at regular interval in the same
+way that it send packets.
+
 options:
 	
 	-l: listen for incoming packets
@@ -137,7 +140,7 @@ func main() {
 	case config.Listen:
 		err = runGateway(s, d, config.Size, config.Verbose, config.Proxy, cfg)
 	case config.Transfer:
-		err = runTransfer(s, d, config.Size, config.Keep, cfg)
+		err = runTransfer(s, d, config.Size, config.Keep, config.Wait, cfg)
 	default:
 		err = runRelay(s, d, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
 	}
@@ -197,40 +200,44 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	return nil
 }
 
-func runTransfer(s, d string, z int, k bool, c *tls.Config) error {
+func runTransfer(s, d string, z int, k bool, w time.Duration, c *tls.Config) error {
 	var client net.Conn
-	for i := 0; i < 5; i++ {
-		if c, err := openClient(d, false); err != nil {
-			time.Sleep(time.Second * time.Duration(i))
+	t := time.NewTicker(w)
+	defer t.Stop()
+	for range t.C {
+		for i := 0; i < 5; i++ {
+			if c, err := openClient(d, false); err != nil {
+				time.Sleep(time.Second * time.Duration(i))
+				continue
+			} else {
+				client = c
+			}
+		}
+		if client == nil {
 			continue
-		} else {
-			client = c
 		}
-	}
-	if client == nil {
-		return fmt.Errorf("connection to %s failed after 5 retries", d)
-	}
-	if c != nil {
-		c.InsecureSkipVerify = true
-		client = tls.Client(client, c)
-	}
-	infos, err := ioutil.ReadDir(s)
-	if err != nil {
-		return err
-	}
-	for _, i := range infos {
-		f, err := os.Open(filepath.Join(s, i.Name()))
+		if c != nil {
+			c.InsecureSkipVerify = true
+			client = tls.Client(client, c)
+		}
+		infos, err := ioutil.ReadDir(s)
 		if err != nil {
-			return err
+			continue
 		}
-		buf := make([]byte, z)
-		if _, err := io.CopyBuffer(client, f, buf); err != nil {
+		for _, i := range infos {
+			f, err := os.Open(filepath.Join(s, i.Name()))
+			if err != nil {
+				continue
+			}
+			buf := make([]byte, z)
+			if _, err := io.CopyBuffer(client, f, buf); err != nil {
+				f.Close()
+				continue
+			}
 			f.Close()
-			return err
-		}
-		f.Close()
-		if !k {
-			os.Remove(s)
+			if !k {
+				os.Remove(s)
+			}
 		}
 	}
 	return nil
