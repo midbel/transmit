@@ -160,7 +160,6 @@ func main() {
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
 func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
-	type transmitFunc func(io.WriteCloser, io.ReadCloser, int) error
 	uri, err := url.Parse(s)
 	if err != nil {
 		return err
@@ -187,12 +186,6 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	} else {
 		listener = serv
 	}
-	var f transmitFunc
-	if p {
-		f = transmit
-	} else {
-		f = reassemble
-	}
 
 	var wg sync.WaitGroup
 	for {
@@ -207,12 +200,12 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 			continue
 		}
 		wg.Add(1)
-		go func(c, g net.Conn, f transmitFunc) {
+		go func(c, g net.Conn) {
 			defer wg.Done()
-			if err := f(g, c, z); err != nil {
+			if err := reassemble(g, c, z, p); err != nil {
 				return
 			}
-		}(client, group, f)
+		}(client, group)
 	}
 	wg.Wait()
 	return nil
@@ -369,7 +362,7 @@ func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
 	}
 }
 
-func reassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
+func reassemble(w io.WriteCloser, r io.ReadCloser, s int, p bool) error {
 	defer func() {
 		w.Close()
 		r.Close()
@@ -391,7 +384,7 @@ func reassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
 			return err
 		}
 
-		if c < s {
+		if c < s || p {
 			buf.Write(chunk[:c])
 			if _, err := io.Copy(w, &buf); err != nil {
 				return err
