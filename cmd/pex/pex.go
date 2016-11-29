@@ -177,45 +177,48 @@ func main() {
 			os.Exit(1)
 		}
 		defer p.Close()
+		transmit(p, queue, config.Datadir, config.Verbose)
+	}
+}
 
-		var counter uint64
+func transmit(p *pool, queue <-chan []byte, d string, v bool) {
+	var counter uint64
 	Loop:
-		for buf := range queue {
-			if len(buf) == 0 {
-				continue
-			}
-			c, err := p.Acquire(buf[0])
-			counter++
-			if config.Verbose {
-				go func(b []byte, c uint64) {
-					fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", time.Now().Format(time.RFC3339), c, len(b), md5.Sum(b))
-				}(buf, counter)
-			}
-			switch {
-			case err == ErrPoolClosed:
-				break Loop
-			case err == ErrInvalidTag && config.Datadir != "":
-				go func(datadir string, chunk []byte) {
-					if len(chunk) == 0 {
-						return
-					}
-					t := time.Now().Format("20060102_150405")
-					f, err := os.Create(filepath.Join(datadir, t+".dat"))
-					if err != nil {
-						return
-					}
-					defer f.Close()
-					f.Write(chunk)
-				}(config.Datadir, buf[:])
-			case err == nil:
-				if _, err := c.Write(buf); err == nil {
-					p.Release(buf[0], c)
-				}
-			default:
-				continue
-			}
-
+	for buf := range queue {
+		if len(buf) == 0 {
+			continue
 		}
+		c, err := p.Acquire(buf[0])
+		counter++
+		if v {
+			go func(b []byte, c uint64) {
+				fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", time.Now().Format(time.RFC3339), c, len(b), md5.Sum(b))
+			}(buf, counter)
+		}
+		switch {
+		case err == ErrPoolClosed:
+			break Loop
+		case err == ErrInvalidTag && d != "":
+			go func(chunk []byte) {
+				if len(chunk) == 0 {
+					return
+				}
+				t := time.Now().Format("20060102_150405")
+				f, err := os.Create(filepath.Join(d, t+".dat"))
+				if err != nil {
+					return
+				}
+				defer f.Close()
+				f.Write(chunk)
+			}(buf[:])
+		case err == nil:
+			if _, err := c.Write(buf); err == nil {
+				p.Release(buf[0], c)
+			}
+		default:
+			continue
+		}
+
 	}
 }
 
