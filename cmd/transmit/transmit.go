@@ -151,6 +151,14 @@ func main() {
 	}
 }
 
+//Starts transmit is listen mode (if c is given, transmit will listen for TLS/
+//SSL connections. It will listen on s for incoming packets and  re-sent them
+//to d. If p is specified, transmit will run as proxy and won't try to re-
+//assemble packets. If not, it will use z as the size of the packets in order
+//to re-assemble the original packet.
+//
+//If v is given, transmit will dump on stderr a timestamp, a counter, the size
+//of the ressambled packets and its md5 sum.
 func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	type transmitFunc func(io.WriteCloser, io.ReadCloser, int) error
 	uri, err := url.Parse(s)
@@ -297,7 +305,7 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 		var client net.Conn
 		for i := 0; i < 5; i++ {
 			if c, err := openClient(d, false); err != nil {
-				time.Sleep(time.Second * time.Duration(i * 3))
+				time.Sleep(time.Second * time.Duration(i*3))
 				continue
 			} else {
 				client = c
