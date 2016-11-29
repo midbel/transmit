@@ -19,8 +19,16 @@ import (
 
 const DefaultBufferSize = 1024
 
+//Common error types.
 var (
+	//ErrPoolClosed is returned when trying to acquire/release a net.Conn from
+	//a closed pool.
 	ErrPoolClosed = errors.New("pool closed")
+
+	//ErrInvalidTag is returned when trying to acquire/release a net.Conn from a
+	//pool with a tag that is not known by the pool. This error can also be
+	//returned when creating a pool if not tag is supplied or the given tag is
+	//not hex encoded.
 	ErrInvalidTag = errors.New("invalid tag")
 )
 
@@ -31,6 +39,8 @@ type pool struct {
 	closed bool
 }
 
+//New creates a new pool from urls settings for each urls a channel of net.Conn
+//with cap of size.
 func New(urls []string, size int) (*pool, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("invalid size")
@@ -54,6 +64,9 @@ func New(urls []string, size int) (*pool, error) {
 	return &pool{urls: infos, conns: conns}, nil
 }
 
+//Acquire returns a net.Conn for the given tag. ErrPoolClosed is returned if
+//the pool is closed and ErrInvalidErr if the tag can not be found. An net.Error
+//is returned when a new net.Conn should be created and fail.
 func (p *pool) Acquire(t byte) (net.Conn, error) {
 	if q, ok := p.conns[t]; ok {
 		var client net.Conn
