@@ -225,7 +225,10 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 	}
 
 	split := func(buf []byte, ateof bool) (int, []byte, error) {
-		if len(buf) < z && !ateof {
+		if ateof && len(buf) > 0 {
+			return len(buf), buf[:], nil
+		}
+		if len(buf) < z {
 			return 0, nil, nil
 		}
 		return z, buf[:z], nil
