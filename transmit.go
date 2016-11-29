@@ -35,7 +35,7 @@ options:
 	
 	-l: listen for incoming packets
 	-c: certificates to encrypt communication between agents
-	-k: keep transferred file(s) (default: remove files transfered)
+	-k: keep transferred file(s) (default: remove files transferred)
 	-w: time to wait when connection failure is encountered
 	-s: size of bytes to read/write from connections
 	-t: transfer file(s)
