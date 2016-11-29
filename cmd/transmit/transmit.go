@@ -441,9 +441,8 @@ func subscribe(source, nic string, v bool) (net.Conn, error) {
 	}
 	if v {
 		return &conn{Conn: c}, nil
-	} else {
-		return c, nil
 	}
+	return c, nil
 }
 
 func openClient(source string, v bool) (net.Conn, error) {
@@ -464,9 +463,8 @@ func openClient(source string, v bool) (net.Conn, error) {
 		}
 		if v {
 			return &conn{Conn: c}, nil
-		} else {
-			return c, nil
 		}
+		return c, nil
 	case "tcp", "tcp4", "tcp6":
 		raddr, err := net.ResolveTCPAddr(s, uri.Host)
 		if err != nil {
@@ -478,9 +476,8 @@ func openClient(source string, v bool) (net.Conn, error) {
 		}
 		if v {
 			return &conn{Conn: c}, nil
-		} else {
-			return c, nil
 		}
+		return c, nil
 	case "unix":
 		c, err := net.Dial(s, uri.Path)
 		if err != nil {
@@ -488,9 +485,8 @@ func openClient(source string, v bool) (net.Conn, error) {
 		}
 		if v {
 			return &conn{Conn: c}, nil
-		} else {
-			return c, nil
 		}
+		return c, nil
 	case "":
 		return nil, fmt.Errorf("no protocol provided. choose between (udp|tcp)[46]")
 	default:
