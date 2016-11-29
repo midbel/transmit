@@ -188,6 +188,7 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 	}
 
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	for {
 		client, err := listener.Accept()
 		if err != nil {
@@ -207,8 +208,6 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 			}
 		}(client, group)
 	}
-	wg.Wait()
-	return nil
 }
 
 //Starts transmit to transfer at regular interval (specified by w) files stored
@@ -332,7 +331,6 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 		disassemble(client, group, z)
 		time.Sleep(w)
 	}
-	return nil
 }
 
 func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
@@ -415,7 +413,6 @@ func transmit(w io.WriteCloser, r io.ReadCloser, s int) error {
 			return err
 		}
 	}
-	return nil
 }
 
 func subscribe(source, nic string, v bool) (net.Conn, error) {
