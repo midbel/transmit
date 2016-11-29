@@ -151,7 +151,7 @@ func main() {
 	}
 }
 
-//Starts transmit is listen mode (if c is given, transmit will listen for TLS/
+//Starts transmit in listen mode (if c is given, transmit will listen for TLS/
 //SSL connections. It will listen on s for incoming packets and  re-sent them
 //to d. If p is specified, transmit will run as proxy and won't try to re-
 //assemble packets. If not, it will use z as the size of the packets in order
@@ -173,7 +173,16 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 
 	var listener net.Listener
 	if c != nil {
-		c.ClientAuth = tls.RequireAnyClientCert
+		switch uri.Query().Get("sslmode") {
+		case "enforce":
+			c.ClientAuth = tls.RequireAndVerifyClientCert
+		case "require":
+			c.ClientAuth = tls.RequireAnyClientCert
+		case "disable":
+			c.ClientAuth = tls.NoClientCert
+		default:
+			c.ClientAuth = tls.RequestClientCert
+		}
 		listener = tls.NewListener(serv, c)
 	} else {
 		listener = serv
