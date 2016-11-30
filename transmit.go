@@ -292,6 +292,10 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 //and send reveived packets of size z to d. If the connection with d is lost, 
 //runRelay will wait w seconds before trying to reconnect to d.
 //
+//To establish a connection with d, runRelay will try 5 times and abort if no
+//connection can be successfully established with d. Between each trial, a pause
+//of some seconds will be made.
+//
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
 func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) error {
