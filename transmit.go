@@ -217,6 +217,9 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
 func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Config) error {
+	if i, err := os.Stat(s); err != nil || !i.IsDir() {
+		return fmt.Errorf("%s not a directory", i.Name())
+	}
 	var client net.Conn
 
 	if z <= 0 {
