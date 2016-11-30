@@ -98,17 +98,17 @@ func init() {
 
 func main() {
 	config := struct {
-		Local       string        `ini:"transmit>local"`
-		Remote      string        `ini:"transmit>remote"`
-		Listen      bool          `ini:"transmit>listen"`
-		Verbose     bool          `ini:"transmit>verbose"`
-		Transfer    bool          `ini:"transmit>transfer"`
-		Keep        bool          `ini:"transmit>keep"`
-		Proxy       bool          `ini:"transmit>proxy"`
-		Size        int           `ini:"transmit>size"`
-		Interface   string        `ini:"transmit>interface"`
-		Certificate string        `ini:"transmit>certificate"`
-		Wait        time.Duration `ini:"transmit>wait"`
+		Local       string `ini:"transmit>local"`
+		Remote      string `ini:"transmit>remote"`
+		Listen      bool   `ini:"transmit>listen"`
+		Verbose     bool   `ini:"transmit>verbose"`
+		Transfer    bool   `ini:"transmit>transfer"`
+		Keep        bool   `ini:"transmit>keep"`
+		Proxy       bool   `ini:"transmit>proxy"`
+		Size        int    `ini:"transmit>size"`
+		Interface   string `ini:"transmit>interface"`
+		Certificate string `ini:"transmit>certificate"`
+		Wait        int    `ini:"transmit>wait"`
 	}{}
 
 	if err := etc.Configure(&config); err != nil {
@@ -124,7 +124,7 @@ func main() {
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
 	flag.StringVar(&config.Interface, "i", "eth0", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
-	flag.DurationVar(&config.Wait, "w", time.Second, "")
+	flag.IntVar(&config.Wait, "w", time.Second, "")
 	flag.Parse()
 
 	var local, remote string
@@ -160,9 +160,11 @@ func main() {
 	case config.Listen:
 		err = runGateway(local, remote, config.Size, config.Verbose, config.Proxy, cfg)
 	case config.Transfer:
-		err = runTransfer(local, remote, config.Size, config.Keep, config.Verbose, config.Wait, cfg)
+		wait := time.Duration(config.Wait) * time.Second
+		err = runTransfer(local, remote, config.Size, config.Keep, config.Verbose, wait, cfg)
 	default:
-		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
+		wait := time.Duration(config.Wait) * time.Second
+		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, wait, cfg)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
