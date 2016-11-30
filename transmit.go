@@ -115,7 +115,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("%+v\n", config)
 
 	flag.IntVar(&config.Size, "s", defaultBufferSize, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
@@ -135,6 +134,10 @@ func main() {
 	case 2:
 		local, remote = flag.Arg(0), flag.Arg(1)
 	default:
+		flag.Usage()
+		os.Exit(1)
+	}
+	if local == "" || remote == "" {
 		flag.Usage()
 		os.Exit(1)
 	}
