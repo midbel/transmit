@@ -288,6 +288,40 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 	return nil
 }
 
+//Starts transmit to subscrive to a mutlicast group s (via network interface i)
+//and send reveived packets of size z to d. If the connection with d is lost, 
+//runRelay will wait w seconds before trying to reconnect to d.
+//
+//If v is given, transmit will dump on stderr a timestamp, a counter, the size
+//of the ressambled packets and its md5 sum.
+func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) error {
+	for {
+		group, err := subscribe(s, i, v)
+		if err != nil {
+			time.Sleep(w)
+			continue
+		}
+		var client net.Conn
+		for i := 0; i < 5; i++ {
+			if c, err := openClient(d, false); err != nil {
+				time.Sleep(time.Second * time.Duration(i*3))
+				continue
+			} else {
+				client = c
+			}
+		}
+		if client == nil {
+			return fmt.Errorf("connection to %s failed after 5 retries", d)
+		}
+		if c != nil {
+			c.InsecureSkipVerify = true
+			client = tls.Client(client, c)
+		}
+		disassemble(client, group, z)
+		time.Sleep(w)
+	}
+}
+
 func copyFiles(c net.Conn, s string, v, k bool, t time.Time, split bufio.SplitFunc) error {
 	defer c.Close()
 	infos, err := ioutil.ReadDir(s)
@@ -327,34 +361,6 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, split bufio.SplitFu
 		}
 	}
 	return nil
-}
-
-func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) error {
-	for {
-		group, err := subscribe(s, i, v)
-		if err != nil {
-			time.Sleep(w)
-			continue
-		}
-		var client net.Conn
-		for i := 0; i < 5; i++ {
-			if c, err := openClient(d, false); err != nil {
-				time.Sleep(time.Second * time.Duration(i*3))
-				continue
-			} else {
-				client = c
-			}
-		}
-		if client == nil {
-			return fmt.Errorf("connection to %s failed after 5 retries", d)
-		}
-		if c != nil {
-			c.InsecureSkipVerify = true
-			client = tls.Client(client, c)
-		}
-		disassemble(client, group, z)
-		time.Sleep(w)
-	}
 }
 
 func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
