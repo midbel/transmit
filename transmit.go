@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"text/template"
 	"time"
+
+	"github.com/midbel/etc"
 )
 
 const helpText = `{{.Name}} tunnel multicast packets over a TCP connection.
@@ -96,16 +98,24 @@ func init() {
 
 func main() {
 	config := struct {
-		Listen      bool
-		Verbose     bool
-		Transfer    bool
-		Keep        bool
-		Proxy       bool
-		Size        int
-		Interface   string
-		Certificate string
-		Wait        time.Duration
+		Local       string        `ini:"transmit>local"`
+		Remote      string        `ini:"transmit>remote"`
+		Listen      bool          `ini:"transmit>listen"`
+		Verbose     bool          `ini:"transmit>verbose"`
+		Transfer    bool          `ini:"transmit>transfer"`
+		Keep        bool          `ini:"transmit>keep"`
+		Proxy       bool          `ini:"transmit>proxy"`
+		Size        int           `ini:"transmit>size"`
+		Interface   string        `ini:"transmit>interface"`
+		Certificate string        `ini:"transmit>certificate"`
+		Wait        time.Duration `ini:"transmit>wait"`
 	}{}
+
+	if err := etc.Configure(&config); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Printf("%+v\n", config)
 
 	flag.IntVar(&config.Size, "s", defaultBufferSize, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
@@ -118,7 +128,13 @@ func main() {
 	flag.DurationVar(&config.Wait, "w", time.Second, "")
 	flag.Parse()
 
-	if flag.NArg() != 2 {
+	var local, remote string
+	switch flag.NArg() {
+	case 0:
+		local, remote = config.Local, config.Remote
+	case 2:
+		local, remote = flag.Arg(0), flag.Arg(1)
+	default:
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -137,13 +153,13 @@ func main() {
 	}
 
 	var err error
-	switch s, d := flag.Arg(0), flag.Arg(1); {
+	switch {
 	case config.Listen:
-		err = runGateway(s, d, config.Size, config.Verbose, config.Proxy, cfg)
+		err = runGateway(local, remote, config.Size, config.Verbose, config.Proxy, cfg)
 	case config.Transfer:
-		err = runTransfer(s, d, config.Size, config.Keep, config.Verbose, config.Wait, cfg)
+		err = runTransfer(local, remote, config.Size, config.Keep, config.Verbose, config.Wait, cfg)
 	default:
-		err = runRelay(s, d, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
+		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, config.Wait, cfg)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
