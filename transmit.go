@@ -91,7 +91,7 @@ func init() {
 			Name: os.Args[0],
 		}
 		t.Execute(os.Stderr, data)
-		fmt.Fprintf(os.Stderr, "usage: %s [-p] [-t] [-k] [-l] [-c] [-w] <local> <remote>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-p] [-t] [-k] [-] [-c] [-w] <local> <remote>\n", os.Args[0])
 		return
 	}
 }
@@ -279,7 +279,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 				c.InsecureSkipVerify = true
 				client = tls.Client(client, c)
 			}
-			copyFiles(client, s, v, k, t, split)
+			copyFiles(client, s, v, k, t, w, split)
 			<-sema
 		case <-time.After(time.Millisecond * 3):
 			continue
@@ -326,7 +326,7 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 	}
 }
 
-func copyFiles(c net.Conn, s string, v, k bool, t time.Time, split bufio.SplitFunc) error {
+func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, split bufio.SplitFunc) error {
 	defer c.Close()
 	infos, err := ioutil.ReadDir(s)
 	if err != nil {
@@ -336,6 +336,13 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, split bufio.SplitFu
 	for _, i := range infos {
 		f, err := os.Open(filepath.Join(s, i.Name()))
 		if err != nil {
+			continue
+		}
+		i, err := f.Stat()
+		if err != nil {
+			continue
+		}
+		if i.ModTime().Sub(t) <= w {
 			continue
 		}
 		s := bufio.NewScanner(f)
