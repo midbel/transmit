@@ -52,6 +52,7 @@ arguments:
 
 const defaultBufferSize = 1024
 
+//conn is a convenient type to dump debuging information by embeding a net.Conn
 type conn struct {
 	net.Conn
 	counter uint64
