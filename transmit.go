@@ -124,7 +124,7 @@ func main() {
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
 	flag.StringVar(&config.Interface, "i", "eth0", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
-	flag.IntVar(&config.Wait, "w", time.Second, "")
+	flag.IntVar(&config.Wait, "w", config.Wait, "")
 	flag.Parse()
 
 	var local, remote string
