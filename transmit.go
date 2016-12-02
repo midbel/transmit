@@ -242,8 +242,6 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 	if i, err := os.Stat(s); err != nil || !i.IsDir() {
 		return fmt.Errorf("%s not a directory", i.Name())
 	}
-	var client net.Conn
-
 	if z <= 0 {
 		z = defaultBufferSize
 	}
@@ -265,12 +263,14 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 	for t := range t.C {
 		select {
 		case sema <- struct{}{}:
+			var client net.Conn
 			for i := 0; i < 5; i++ {
 				if c, err := openClient(d, false); err != nil {
 					time.Sleep(time.Second * time.Duration(i))
 					continue
 				} else {
 					client = c
+					break
 				}
 			}
 			if client == nil {
@@ -313,6 +313,7 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 				continue
 			} else {
 				client = c
+				break
 			}
 		}
 		if client == nil {
@@ -413,27 +414,18 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	if s <= 0 {
 		s = defaultBufferSize
 	}
-	var (
-		buf   bytes.Buffer
-		abort bool
-	)
+	var buf   bytes.Buffer
 	for {
 		chunk := make([]byte, s)
 		c, err := r.Read(chunk)
-		switch {
-		case err == io.EOF:
-			abort = true
-		case err != nil:
+		if err != nil {
 			return err
 		}
 
 		if c < s || p {
 			buf.Write(chunk[:c])
-			if _, err := io.Copy(w, &buf); err != nil && err != io.EOF {
+			if _, err := io.Copy(w, &buf); err != nil {
 				return err
-			}
-			if abort {
-				return io.EOF
 			}
 		} else {
 			buf.Write(chunk)
