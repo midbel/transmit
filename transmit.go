@@ -430,7 +430,7 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 
 		if c < s || p {
 			buf.Write(chunk[:c])
-			if _, err := io.Copy(w, &buf); err != nil {
+			if _, err := io.Copy(w, &buf); err != nil && err != io.EOF {
 				return err
 			}
 			if abort {
