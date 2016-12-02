@@ -419,7 +419,6 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	)
 	for {
 		chunk := make([]byte, s)
-		r.SetReadDeadline(time.Now().Add(60 * time.Minute))
 		c, err := r.Read(chunk)
 		switch {
 		case err == io.EOF:
