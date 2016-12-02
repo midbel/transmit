@@ -343,7 +343,7 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 		if err != nil {
 			continue
 		}
-		if i.ModTime().Sub(t) <= w {
+		if t.Sub(i.ModTime()) <= w {
 			continue
 		}
 		s := bufio.NewScanner(f)
@@ -375,7 +375,7 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 	return nil
 }
 
-func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
+func disassemble(w net.Conn, r net.Conn, s int) error {
 	defer func() {
 		w.Close()
 		r.Close()
@@ -405,7 +405,7 @@ func disassemble(w io.WriteCloser, r io.ReadCloser, s int) error {
 	}
 }
 
-func reassemble(w io.WriteCloser, r io.ReadCloser, s int, p bool) error {
+func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	defer func() {
 		w.Close()
 		r.Close()
@@ -419,9 +419,10 @@ func reassemble(w io.WriteCloser, r io.ReadCloser, s int, p bool) error {
 	)
 	for {
 		chunk := make([]byte, s)
+		r.SetReadDeadline(time.Now().Add(60 * time.Minute))
 		c, err := r.Read(chunk)
 		switch {
-		case err == io.EOF && buf.Len() > 0:
+		case err == io.EOF:
 			abort = true
 		case err != nil:
 			return err
@@ -437,22 +438,6 @@ func reassemble(w io.WriteCloser, r io.ReadCloser, s int, p bool) error {
 			}
 		} else {
 			buf.Write(chunk)
-		}
-	}
-}
-
-func transmit(w io.WriteCloser, r io.ReadCloser, s int) error {
-	defer func() {
-		w.Close()
-		r.Close()
-	}()
-	if s <= 0 {
-		s = defaultBufferSize
-	}
-	buf := make([]byte, s)
-	for {
-		if _, err := io.CopyBuffer(w, r, buf); err != nil && err == io.EOF {
-			return err
 		}
 	}
 }
