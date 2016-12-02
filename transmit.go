@@ -290,7 +290,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 }
 
 //Starts transmit to subscrive to a mutlicast group s (via network interface i)
-//and send reveived packets of size z to d. If the connection with d is lost, 
+//and send reveived packets of size z to d. If the connection with d is lost,
 //runRelay will wait w seconds before trying to reconnect to d.
 //
 //To establish a connection with d, runRelay will try 5 times and abort if no
@@ -414,7 +414,7 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	if s <= 0 {
 		s = defaultBufferSize
 	}
-	var buf   bytes.Buffer
+	var buf bytes.Buffer
 	for {
 		chunk := make([]byte, s)
 		c, err := r.Read(chunk)
