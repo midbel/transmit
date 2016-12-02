@@ -109,6 +109,7 @@ func main() {
 		Size        int    `ini:"transmit>size"`
 		Interface   string `ini:"transmit>interface"`
 		Certificate string `ini:"transmit>certificate"`
+		Mode        string `ini:"transmit>sslmode"`
 		Wait        int    `ini:"transmit>wait"`
 	}{}
 
@@ -125,6 +126,7 @@ func main() {
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
 	flag.StringVar(&config.Interface, "i", "eth0", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
+	flag.StringVar(&config.Mode, "m", "", "sslmode")
 	flag.IntVar(&config.Wait, "w", config.Wait, "")
 	flag.Parse()
 
@@ -153,6 +155,20 @@ func main() {
 			os.Exit(1)
 		} else {
 			cfg = &tls.Config{Certificates: []tls.Certificate{c}}
+			switch l, m := config.Listen, config.Mode; {
+			case l && m == "enforce":
+				cfg.ClientAuth = tls.RequireAndVerifyClientCert
+			case l && m == "require":
+				cfg.ClientAuth = tls.RequireAnyClientCert
+			case l && m == "disable":
+				cfg.ClientAuth = tls.NoClientCert
+			case l && m == "":
+				cfg.ClientAuth = tls.RequestClientCert
+			case !l && (m == "insecure" || m == ""):
+				cfg.InsecureSkipVerify = true
+			case !l && m == "strict":
+				cfg.InsecureSkipVerify = false
+			}
 		}
 	}
 
@@ -194,16 +210,6 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 
 	var listener net.Listener
 	if c != nil {
-		switch uri.Query().Get("sslmode") {
-		case "enforce":
-			c.ClientAuth = tls.RequireAndVerifyClientCert
-		case "require":
-			c.ClientAuth = tls.RequireAnyClientCert
-		case "disable":
-			c.ClientAuth = tls.NoClientCert
-		default:
-			c.ClientAuth = tls.RequestClientCert
-		}
 		listener = tls.NewListener(serv, c)
 	} else {
 		listener = serv
@@ -320,7 +326,6 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 			return fmt.Errorf("connection to %s failed after 5 retries", d)
 		}
 		if c != nil {
-			c.InsecureSkipVerify = true
 			client = tls.Client(client, c)
 		}
 		disassemble(client, group, z)
