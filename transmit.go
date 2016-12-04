@@ -99,18 +99,18 @@ func init() {
 
 func main() {
 	config := struct {
-		Local       string `ini:"transmit>local"`
-		Remote      string `ini:"transmit>remote"`
-		Listen      bool   `ini:"transmit>listen"`
-		Verbose     bool   `ini:"transmit>verbose"`
-		Transfer    bool   `ini:"transmit>transfer"`
-		Keep        bool   `ini:"transmit>keep"`
-		Proxy       bool   `ini:"transmit>proxy"`
-		Size        int    `ini:"transmit>size"`
-		Interface   string `ini:"transmit>interface"`
-		Certificate string `ini:"transmit>certificate"`
-		Mode        string `ini:"transmit>sslmode"`
-		Wait        int    `ini:"transmit>wait"`
+		Local       string
+		Remote      string
+		Listen      bool
+		Verbose     bool
+		Transfer    bool
+		Keep        bool
+		Proxy       bool
+		Size        int
+		Interface   string
+		Certificate string
+		Mode        string
+		Wait        int
 	}{}
 
 	if err := etc.Configure(&config); err != nil {
