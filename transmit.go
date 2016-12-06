@@ -16,38 +16,38 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"text/template"
 	"time"
 
 	"github.com/midbel/etc"
 )
 
-const helpText = `{{.Name}} tunnel multicast packets over a TCP connection.
+const helpText = `%[1]s tunnel multicast packets over a TCP connection.
 
-{{.Name}} is a small tool designed to send multicast packets from one network
+%[1] is a small tool designed to send multicast packets from one network
 to another which missed connectivity with the former.
 
 Its original goal is to be able to forward packets from multicast groups
 through firewalls that allow only outgoing TCP/TLS connections.
 
-{{.Name}} can also be used to transfer files at regular interval in the same
+%[1]s can also be used to transfer files at regular interval in the same
 way that it send packets.
 
-options:
-	
-	-l: listen for incoming packets
-	-c: certificates to encrypt communication between agents
-	-k: keep transferred file(s) (default: remove files transferred)
-	-w: time to wait when connection failure is encountered
-	-s: size of bytes to read/write from connections
-	-t: transfer file(s)
-	-v: dump packets length + md5 on stderr
+Options:
+  -h: show this help message and exit
+  -l: listen for incoming packets
+  -c: certificates to encrypt communication between agents
+  -k: keep transferred file(s) (default: remove files transferred)
+  -p: acts as a proxy. It does not try to reassemble chunk of the initial packet
+  -s: size of bytes to read/write from connections
+  -t: transfer file(s)
+  -v: dump packets length + md5 on stderr
+  -w: time to wait when connection failure is encountered
 
-arguments:
-	
-	local: local address to listen for incoming packets
-	remote: remote address to forward received packets
+Arguments:
+  local: local address to listen for incoming packets
+  remote: remote address to forward received packets
 
+Usage: %[1]s [options] <local> <remote>
 `
 
 const defaultBufferSize = 1024
@@ -86,13 +86,7 @@ func (c *conn) Write(b []byte) (int, error) {
 
 func init() {
 	flag.Usage = func() {
-		t := template.New("usage")
-		template.Must(t.Parse(helpText))
-		data := struct{ Name string }{
-			Name: os.Args[0],
-		}
-		t.Execute(os.Stderr, data)
-		fmt.Fprintf(os.Stderr, "usage: %s [-p] [-t] [-k] [-] [-c] [-w] <local> <remote>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, helpText, os.Args[0])
 		return
 	}
 }
