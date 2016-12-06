@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"log/syslog"
 	"net"
 	"net/url"
 	"os"
@@ -65,7 +67,7 @@ func (c *conn) Read(b []byte) (int, error) {
 	}
 	go func(b []byte) {
 		v := atomic.AddUint64(&c.counter, 1)
-		fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", time.Now().Format(time.RFC3339), v, n, md5.Sum(b))
+		log.Printf("%8d | %8d | %x\n", v, n, md5.Sum(b))
 	}(b[:n])
 
 	return n, err
@@ -78,7 +80,7 @@ func (c *conn) Write(b []byte) (int, error) {
 	}
 	go func(b []byte) {
 		v := atomic.AddUint64(&c.counter, 1)
-		fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", time.Now().Format(time.RFC3339), v, n, md5.Sum(b))
+		log.Printf("%8d | %8d | %x\n", v, n, md5.Sum(b))
 	}(b[:n])
 
 	return n, err
@@ -89,12 +91,16 @@ func init() {
 		fmt.Fprintf(os.Stderr, helpText, os.Args[0])
 		return
 	}
+	log.SetPrefix(fmt.Sprintf("[%s] ", os.Args[0]))
 }
+
+var logger *syslog.Writer
 
 func main() {
 	config := struct {
 		Local       string
 		Remote      string
+		Log         string
 		Listen      bool
 		Verbose     bool
 		Transfer    bool
@@ -118,6 +124,7 @@ func main() {
 	flag.BoolVar(&config.Keep, "k", false, "keep")
 	flag.BoolVar(&config.Transfer, "t", false, "transfer")
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
+	flag.StringVar(&config.Log, "o", "", "syslog")
 	flag.StringVar(&config.Interface, "i", "eth0", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
 	flag.StringVar(&config.Mode, "m", "", "sslmode")
@@ -145,8 +152,7 @@ func main() {
 		key := filepath.Join(c, "transmit.key")
 
 		if c, err := tls.LoadX509KeyPair(pem, key); err != nil {
-			fmt.Fprintf(os.Stderr, "fail to load certificate from %s: %s\n", config.Certificate, err)
-			os.Exit(1)
+			log.Fatalf("fail to load certificate from %s: %s\n", config.Certificate, err)
 		} else {
 			cfg = &tls.Config{Certificates: []tls.Certificate{c}}
 			switch l, m := config.Listen, config.Mode; {
@@ -165,8 +171,18 @@ func main() {
 			}
 		}
 	}
-
 	var err error
+	priority := syslog.LOG_USER | syslog.LOG_INFO
+	if config.Log == "" {
+		logger, err = syslog.New(priority, os.Args[0])
+	} else {
+		logger, err = syslog.Dial("udp", config.Log, priority, os.Args[0])
+	}
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer logger.Close()
+
 	switch {
 	case config.Listen:
 		err = runGateway(local, remote, config.Size, config.Verbose, config.Proxy, cfg)
@@ -178,8 +194,7 @@ func main() {
 		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, wait, cfg)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		log.Fatalln(err)
 	}
 }
 
@@ -211,14 +226,18 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	
+	logger.Info(fmt.Sprintf("start listening for incoming connections %s", s))
 	for {
 		client, err := listener.Accept()
 		if err != nil {
+			logger.Err(fmt.Sprintf("error while receiving new connection: %s", err))
 			client.Close()
 			continue
 		}
 		group, err := openClient(d, v)
 		if err != nil {
+			logger.Err(fmt.Sprintf("error while opening connection to %s: %s", d, err))
 			client.Close()
 			continue
 		}
@@ -266,10 +285,12 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 			var client net.Conn
 			for i := 0; i < 5; i++ {
 				if c, err := openClient(d, false); err != nil {
+					logger.Err(fmt.Sprintf("error while opening connection with %s (attempt #%d): %s", d, i+1, err))
 					time.Sleep(time.Second * time.Duration(i))
 					continue
 				} else {
 					client = c
+					logger.Info(fmt.Sprintf("connection to %s established (attempt #%d)", c.RemoteAddr(), i+1))
 					break
 				}
 			}
@@ -309,10 +330,12 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 		var client net.Conn
 		for i := 0; i < 5; i++ {
 			if c, err := openClient(d, false); err != nil {
+				logger.Err(fmt.Sprintf("error while opening connection with %s (attempt #%d): %s", d, i+1, err))
 				time.Sleep(time.Second * time.Duration(i*3))
 				continue
 			} else {
 				client = c
+				logger.Info(fmt.Sprintf("connection to %s established (attempt #%d)", c.RemoteAddr(), i+1))
 				break
 			}
 		}
@@ -328,15 +351,20 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 }
 
 func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, split bufio.SplitFunc) error {
-	defer c.Close()
+	defer func() {
+		c.Close()
+		logger.Info(fmt.Sprintf("connection closed with %s", c.RemoteAddr()))
+	}()
 	infos, err := ioutil.ReadDir(s)
 	if err != nil {
+		logger.Err(fmt.Sprintf("error while scanning directory %s: %s", s, err))
 		return err
 	}
-	var counter uint64
+	var total, counter uint64
 	for _, i := range infos {
 		f, err := os.Open(filepath.Join(s, i.Name()))
 		if err != nil {
+			logger.Err(fmt.Sprintf("error while opening %s: %s", i.Name(), err))
 			continue
 		}
 		i, err := f.Stat()
@@ -346,6 +374,7 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 		if t.Sub(i.ModTime()) <= w {
 			continue
 		}
+		total += uint64(i.Size())
 		s := bufio.NewScanner(f)
 		s.Split(split)
 
@@ -361,17 +390,20 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 			size += len(buf)
 			sum.Write(buf)
 			if _, err = c.Write(buf); err != nil {
+				logger.Err(fmt.Sprintf("error while sending chunk to %s: %s", c.RemoteAddr(), err))
 				break
 			}
 		}
 		f.Close()
 		if !k && err == nil {
-			os.Remove(f.Name())
+			err := os.Remove(f.Name())
+			logger.Err(fmt.Sprintf("error while remoing %s: %s", f.Name(), err))
 		}
 		if v {
-			go fmt.Fprintf(os.Stderr, "%s | %8d | %8d | %x\n", t.Format(time.RFC3339), counter, size, sum.Sum(nil))
+			go log.Printf("%8d | %8d | %x\n", counter, size, sum.Sum(nil))
 		}
 	}
+	logger.Info(fmt.Sprintf("done sending %d files to %s (%d bytes)", counter, c.RemoteAddr(), total))
 	return nil
 }
 
@@ -379,15 +411,18 @@ func disassemble(w net.Conn, r net.Conn, s int) error {
 	defer func() {
 		w.Close()
 		r.Close()
+		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	if s <= 0 {
 		s = defaultBufferSize
 	}
 
+	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
 	for {
 		chunk := make([]byte, 8192)
 		c, err := r.Read(chunk)
 		if err != nil {
+			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 			return err
 		}
 		if c < s {
@@ -398,6 +433,7 @@ func disassemble(w net.Conn, r net.Conn, s int) error {
 			buf := bytes.NewBuffer(chunk[:c])
 			for i, c := 0, 1+(len(chunk)/s); i < c; i++ {
 				if _, err := w.Write(buf.Next(s)); err != nil {
+					logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 					return err
 				}
 			}
@@ -409,21 +445,25 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	defer func() {
 		w.Close()
 		r.Close()
+		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	if s <= 0 {
 		s = defaultBufferSize
 	}
 	var buf bytes.Buffer
+	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
 	for {
 		chunk := make([]byte, s)
 		c, err := r.Read(chunk)
 		if err != nil {
+			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 			return err
 		}
 
 		if c < s || p {
 			buf.Write(chunk[:c])
 			if _, err := io.Copy(w, &buf); err != nil {
+				logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 				return err
 			}
 		} else {
