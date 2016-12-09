@@ -439,6 +439,7 @@ func disassemble(w net.Conn, r net.Conn, s int) error {
 			}
 		}
 	}
+	return nil
 }
 
 func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
