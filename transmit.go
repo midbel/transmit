@@ -422,11 +422,13 @@ func disassemble(w net.Conn, r net.Conn, s int) error {
 	
 	chunk := make([]byte, 8192)
 	for {
-		c, err := r.Read(chunk)
+		//c, err := r.Read(chunk)
+		c, err := io.ReadAtLeast(r, chunk, 128)
 		if err != nil {
 			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 			return err
 		}
+		
 		if c < s {
 			if _, err := w.Write(chunk[:c]); err != nil {
 				return err
