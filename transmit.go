@@ -87,11 +87,12 @@ func (c *conn) Write(b []byte) (int, error) {
 }
 
 func init() {
+	name := filepath.Base(os.Args[0])
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, helpText, os.Args[0])
+		fmt.Fprintf(os.Stderr, helpText, name)
 		return
 	}
-	log.SetPrefix(fmt.Sprintf("[%s] ", os.Args[0]))
+	log.SetPrefix(fmt.Sprintf("[%s] ", name))
 }
 
 var logger *syslog.Writer
@@ -418,8 +419,9 @@ func disassemble(w net.Conn, r net.Conn, s int) error {
 	}
 
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
+	
+	chunk := make([]byte, 8192)
 	for {
-		chunk := make([]byte, 8192)
 		c, err := r.Read(chunk)
 		if err != nil {
 			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
@@ -453,8 +455,9 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	}
 	var buf bytes.Buffer
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
+	
+	chunk := make([]byte, s)
 	for {
-		chunk := make([]byte, s)
 		c, err := r.Read(chunk)
 		if err != nil {
 			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
