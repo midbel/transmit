@@ -428,6 +428,7 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 			default:
 				c, err := r.Read(chunk)
 				if err != nil {
+					logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 					return 
 				}
 				queue <- chunk[:c]
