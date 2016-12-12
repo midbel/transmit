@@ -413,40 +413,55 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 	return nil
 }
 
+func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
+	if c <= 0 {
+		c = defaultBufferSize
+	}
+	queue := make(chan []byte, 100)
+	go func() {
+		defer close(queue)
+		chunk := make([]byte, c)
+		for {
+			select {
+			case <-abort:
+				return
+			default:
+				c, err := r.Read(chunk)
+				if err != nil {
+					return 
+				}
+				queue <- chunk[:c]
+			}
+		}
+	}()
+	return queue
+}
+
 func disassemble(w net.Conn, r net.Conn, s, c int) error {
+	if s <= 0 {
+		s = defaultChunkSize
+	}
+	abort := make(chan struct{})
 	defer func() {
+		close(abort)
 		w.Close()
 		r.Close()
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
-	if s <= 0 {
-		s = defaultChunkSize
-	}
-	if c <= 0 {
-		c = defaultBufferSize
-	}
-
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
-	
-	chunk := make([]byte, c)
-	for {
-		c, err := r.Read(chunk)
-		if err != nil {
-			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
-			return err
-		}
-		
-		if c < s {
-			if _, err := w.Write(chunk[:c]); err != nil {
+	for chunk := range readPackets(r, c, abort) {
+		if len(chunk) < s {
+			if _, err := w.Write(chunk); err != nil {
+				logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 				return err
-			}
+			}		
 		} else {
-			buf := bytes.NewBuffer(chunk[:c])
-			for i, c := 0, 1+(len(chunk)/s); i < c; i++ {
+			buf := bytes.NewBuffer(chunk)
+			for i, c := 0, buf.Len()/s; i <= c; i++ {
 				if _, err := w.Write(buf.Next(s)); err != nil {
 					logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 					return err
-				}
+				}			
 			}
 		}
 	}
