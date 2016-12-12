@@ -52,7 +52,10 @@ Arguments:
 Usage: %[1]s [options] <local> <remote>
 `
 
-const defaultBufferSize = 1024
+const (
+	defaultChunkSize = 1024
+	defaultBufferSize = 8192
+)
 
 //conn is a convenient type to dump debuging information by embeding a net.Conn
 type conn struct {
@@ -108,6 +111,7 @@ func main() {
 		Keep        bool
 		Proxy       bool
 		Size        int
+		Count       int
 		Interface   string
 		Certificate string
 		Mode        string
@@ -119,7 +123,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	flag.IntVar(&config.Size, "s", defaultBufferSize, "size")
+	flag.IntVar(&config.Size, "n", defaultBufferSize, "count")
+	flag.IntVar(&config.Size, "s", defaultChunkSize, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&config.Listen, "l", false, "listen")
 	flag.BoolVar(&config.Keep, "k", false, "keep")
@@ -192,7 +197,7 @@ func main() {
 		err = runTransfer(local, remote, config.Size, config.Keep, config.Verbose, wait, cfg)
 	default:
 		wait := time.Duration(config.Wait) * time.Second
-		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, wait, cfg)
+		err = runRelay(local, remote, config.Interface, config.Size, config.Count, config.Verbose, wait, cfg)
 	}
 	if err != nil {
 		log.Fatalln(err)
@@ -263,7 +268,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 		return fmt.Errorf("%s not a directory", i.Name())
 	}
 	if z <= 0 {
-		z = defaultBufferSize
+		z = defaultChunkSize
 	}
 
 	split := func(buf []byte, ateof bool) (int, []byte, error) {
@@ -321,7 +326,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 //
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
-func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) error {
+func runRelay(s, d, i string, z, n int, v bool, w time.Duration, c *tls.Config) error {
 	for {
 		group, err := subscribe(s, i, v)
 		if err != nil {
@@ -346,7 +351,7 @@ func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) err
 		if c != nil {
 			client = tls.Client(client, c)
 		}
-		disassemble(client, group, z)
+		disassemble(client, group, z, n)
 		time.Sleep(w)
 	}
 }
@@ -408,22 +413,24 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 	return nil
 }
 
-func disassemble(w net.Conn, r net.Conn, s int) error {
+func disassemble(w net.Conn, r net.Conn, s, c int) error {
 	defer func() {
 		w.Close()
 		r.Close()
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	if s <= 0 {
-		s = defaultBufferSize
+		s = defaultChunkSize
+	}
+	if c <= 0 {
+		c = defaultBufferSize
 	}
 
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
 	
-	chunk := make([]byte, 8192)
+	chunk := make([]byte, c)
 	for {
 		c, err := r.Read(chunk)
-		//c, err := io.ReadAtLeast(r, chunk, 128)
 		if err != nil {
 			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 			return err
@@ -453,7 +460,7 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	if s <= 0 {
-		s = defaultBufferSize
+		s = defaultChunkSize
 	}
 	var buf bytes.Buffer
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
