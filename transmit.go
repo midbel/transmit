@@ -53,7 +53,7 @@ Usage: %[1]s [options] <local> <remote>
 `
 
 const (
-	defaultChunkSize = 1024
+	defaultChunkSize  = 1024
 	defaultBufferSize = 8192
 )
 
@@ -232,7 +232,7 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	
+
 	logger.Info(fmt.Sprintf("start listening for incoming connections %s", s))
 	for {
 		client, err := listener.Accept()
@@ -430,7 +430,7 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 				c, err := r.Read(chunk)
 				if err != nil {
 					logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
-					return 
+					return
 				}
 				queue <- chunk[:c]
 			}
@@ -456,14 +456,14 @@ func disassemble(w net.Conn, r net.Conn, s, c int) error {
 			if _, err := w.Write(chunk); err != nil {
 				logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 				return err
-			}		
+			}
 		} else {
 			buf := bytes.NewBuffer(chunk)
 			for i, c := 0, buf.Len()/s; i <= c; i++ {
 				if _, err := w.Write(buf.Next(s)); err != nil {
 					logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 					return err
-				}			
+				}
 			}
 		}
 	}
@@ -481,7 +481,7 @@ func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
 	}
 	var buf bytes.Buffer
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
-	
+
 	chunk := make([]byte, s)
 	for {
 		c, err := r.Read(chunk)
