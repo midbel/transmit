@@ -451,6 +451,8 @@ func disassemble(w net.Conn, r net.Conn, s, c int) error {
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
+	
+	var buf bytes.Buffer
 	for chunk := range readPackets(r, c, abort) {
 		if len(chunk) < s {
 			if _, err := w.Write(chunk); err != nil {
@@ -458,13 +460,14 @@ func disassemble(w net.Conn, r net.Conn, s, c int) error {
 				return err
 			}
 		} else {
-			buf := bytes.NewBuffer(chunk)
+			buf.Write(chunk)
 			for i, c := 0, buf.Len()/s; i <= c; i++ {
 				if _, err := w.Write(buf.Next(s)); err != nil {
 					logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
 					return err
 				}
 			}
+			buf.Reset()
 		}
 	}
 	return nil
