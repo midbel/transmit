@@ -424,12 +424,11 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 	queue := make(chan []byte, 100)
 	go func() {
 		defer close(queue)
-		throttle := time.Tick(time.Millisecond)
 		for {
 			select {
 			case <-abort:
 				return
-			case <-throttle:
+			default:
 				chunk := make([]byte, c)
 				c, err := r.Read(chunk)
 				if err != nil {
