@@ -124,7 +124,7 @@ func main() {
 	}
 
 	flag.IntVar(&config.Size, "n", defaultBufferSize, "count")
-	flag.IntVar(&config.Size, "s", defaultChunkSize, "size")
+	flag.IntVar(&config.Size, "s", 0, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&config.Listen, "l", false, "listen")
 	flag.BoolVar(&config.Keep, "k", false, "keep")
@@ -250,7 +250,7 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 		wg.Add(1)
 		go func(c, g net.Conn) {
 			defer wg.Done()
-			if err := reassemble(g, c, z, p); err != nil {
+			if err := joinPackets(g, c, z, p); err != nil {
 				return
 			}
 		}(client, group)
@@ -351,7 +351,11 @@ func runRelay(s, d, i string, z, n int, v bool, w time.Duration, c *tls.Config) 
 		if c != nil {
 			client = tls.Client(client, c)
 		}
-		disassemble(client, group, z, n)
+		if z == 0 {
+			copyPackets(client, group, n)
+		} else {
+			splitPackets(client, group, z, n)
+		}
 		time.Sleep(w)
 	}
 }
@@ -439,7 +443,26 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 	return queue
 }
 
-func disassemble(w net.Conn, r net.Conn, s, c int) error {
+func copyPackets(w net.Conn, r net.Conn, c int) error {
+	defer func() {
+		w.Close()
+		r.Close()
+		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
+	}()
+	if c <= 0 {
+		c = defaultBufferSize
+	}
+	buf := make([]byte, c)
+	
+	logger.Info(fmt.Sprintf("start copying from %s to %s packets", r.LocalAddr(), w.RemoteAddr()))
+	_, err := io.CopyBuffer(w, r, buf)
+	if err != nil {
+		logger.Err(fmt.Sprintf("error while copying packet to %s: %s", w.RemoteAddr(), err))
+	}
+	return err
+}
+
+func splitPackets(w net.Conn, r net.Conn, s, c int) error {
 	if s <= 0 {
 		s = defaultChunkSize
 	}
@@ -473,7 +496,7 @@ func disassemble(w net.Conn, r net.Conn, s, c int) error {
 	return nil
 }
 
-func reassemble(w net.Conn, r net.Conn, s int, p bool) error {
+func joinPackets(w net.Conn, r net.Conn, s int, p bool) error {
 	defer func() {
 		w.Close()
 		r.Close()
