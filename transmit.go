@@ -39,8 +39,12 @@ Options:
   -l: listen for incoming packets
   -c: certificates to encrypt communication between agents
   -k: keep transferred file(s) (default: remove files transferred)
+  -i: network interface to used when subscribing to a multicast group
+  -o: address of syslog daemon
   -p: acts as a proxy. It does not try to reassemble chunk of the initial packet
-  -s: size of bytes to read/write from connections
+  -s: size of chunks to read/write from connections between two %[1]s
+  -m: ssl mode
+  -n: max count of bytes to read from connections
   -t: transfer file(s)
   -v: dump packets length + md5 on stderr
   -w: time to wait when connection failure is encountered
@@ -131,10 +135,10 @@ func main() {
 	flag.BoolVar(&config.Transfer, "t", false, "transfer")
 	flag.BoolVar(&config.Proxy, "p", false, "proxy")
 	flag.StringVar(&config.Log, "o", "", "syslog")
-	flag.StringVar(&config.Interface, "i", "eth0", "interface")
+	flag.StringVar(&config.Interface, "i", "", "interface")
 	flag.StringVar(&config.Certificate, "c", "", "certificate")
 	flag.StringVar(&config.Mode, "m", "", "sslmode")
-	flag.IntVar(&config.Wait, "w", config.Wait, "")
+	flag.IntVar(&config.Wait, "w", config.Wait, "wait")
 	flag.Parse()
 
 	var local, remote string
@@ -442,6 +446,9 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 	return queue
 }
 
+//copyPackets read packets from r before copying them to w without touching
+//them. It reads up to c bytes from r. An error is returned on any error 
+//occurring during reading and writing.
 func copyPackets(w net.Conn, r net.Conn, c int) error {
 	defer func() {
 		w.Close()
@@ -452,7 +459,7 @@ func copyPackets(w net.Conn, r net.Conn, c int) error {
 		c = defaultBufferSize
 	}
 	buf := make([]byte, c)
-	
+
 	logger.Info(fmt.Sprintf("start copying from %s to %s packets", r.LocalAddr(), w.RemoteAddr()))
 	_, err := io.CopyBuffer(w, r, buf)
 	if err != nil {
@@ -461,6 +468,9 @@ func copyPackets(w net.Conn, r net.Conn, c int) error {
 	return err
 }
 
+//splitPackets read packets from r and split them in chunk of s bytes before
+//sending them to w. It reads up to c bytes from r. An error is returned on any
+//error occuring during reading and writing.
 func splitPackets(w net.Conn, r net.Conn, s, c int) error {
 	if s <= 0 {
 		s = defaultChunkSize
@@ -473,7 +483,7 @@ func splitPackets(w net.Conn, r net.Conn, s, c int) error {
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
 	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
-	
+
 	var buf bytes.Buffer
 	for chunk := range readPackets(r, c, abort) {
 		if len(chunk) < s {
