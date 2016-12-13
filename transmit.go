@@ -8,9 +8,10 @@ import (
 	"bytes"
 	"crypto/md5"
 	"crypto/tls"
+	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
+	//"io"
 	"io/ioutil"
 	"log"
 	"log/syslog"
@@ -45,9 +46,8 @@ Options:
   -i: network interface to used when subscribing to a multicast group
   -o: address of syslog daemon
   -p: acts as a proxy. It does not try to reassemble chunk of the initial packet
-  -s: size of chunks to read/write from connections between two %[1]s
   -m: ssl mode
-  -n: max count of bytes to read from connections
+  -s: max count of bytes to read from connections
   -t: transfer file(s)
   -v: dump packets length + md5 on stderr
   -w: time to wait when connection failure is encountered
@@ -60,8 +60,8 @@ Usage: %[1]s [options] <local> <remote>
 `
 
 const (
-	defaultChunkSize  = 1024
 	defaultBufferSize = 8192
+	defaultChunkSize  = 1024
 )
 
 //conn is a convenient type to dump debuging information by embeding a net.Conn
@@ -118,7 +118,6 @@ func main() {
 		Keep        bool
 		Proxy       bool
 		Size        int
-		Count       int
 		Interface   string
 		Certificate string
 		Mode        string
@@ -130,8 +129,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	flag.IntVar(&config.Size, "n", defaultBufferSize, "count")
-	flag.IntVar(&config.Size, "s", 0, "size")
+	flag.IntVar(&config.Size, "s", defaultBufferSize, "size")
 	flag.BoolVar(&config.Verbose, "v", false, "verbose")
 	flag.BoolVar(&config.Listen, "l", false, "listen")
 	flag.BoolVar(&config.Keep, "k", false, "keep")
@@ -198,13 +196,13 @@ func main() {
 
 	switch {
 	case config.Listen:
-		err = runGateway(local, remote, config.Size, config.Verbose, config.Proxy, cfg)
+		err = runGateway(local, remote, config.Verbose, config.Proxy, cfg)
 	case config.Transfer:
 		wait := time.Duration(config.Wait) * time.Second
 		err = runTransfer(local, remote, config.Size, config.Keep, config.Verbose, wait, cfg)
 	default:
 		wait := time.Duration(config.Wait) * time.Second
-		err = runRelay(local, remote, config.Interface, config.Size, config.Count, config.Verbose, wait, cfg)
+		err = runRelay(local, remote, config.Interface, config.Size, config.Verbose, wait, cfg)
 	}
 	if err != nil {
 		log.Fatalln(err)
@@ -219,7 +217,7 @@ func main() {
 //
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
-func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
+func runGateway(s, d string, v, p bool, c *tls.Config) error {
 	uri, err := url.Parse(s)
 	if err != nil {
 		return err
@@ -257,7 +255,7 @@ func runGateway(s, d string, z int, v, p bool, c *tls.Config) error {
 		wg.Add(1)
 		go func(c, g net.Conn) {
 			defer wg.Done()
-			if err := joinPackets(g, c, z, p); err != nil {
+			if err := joinPackets(g, c, p); err != nil {
 				return
 			}
 		}(client, group)
@@ -333,7 +331,7 @@ func runTransfer(s, d string, z int, k bool, v bool, w time.Duration, c *tls.Con
 //
 //If v is given, transmit will dump on stderr a timestamp, a counter, the size
 //of the ressambled packets and its md5 sum.
-func runRelay(s, d, i string, z, n int, v bool, w time.Duration, c *tls.Config) error {
+func runRelay(s, d, i string, z int, v bool, w time.Duration, c *tls.Config) error {
 	for {
 		group, err := subscribe(s, i, v)
 		if err != nil {
@@ -358,11 +356,7 @@ func runRelay(s, d, i string, z, n int, v bool, w time.Duration, c *tls.Config) 
 		if c != nil {
 			client = tls.Client(client, c)
 		}
-		if z == 0 {
-			copyPackets(client, group, n)
-		} else {
-			splitPackets(client, group, z, n)
-		}
+		copyPackets(client, group, z)
 		time.Sleep(w)
 	}
 }
@@ -424,120 +418,85 @@ func copyFiles(c net.Conn, s string, v, k bool, t time.Time, w time.Duration, sp
 	return nil
 }
 
-func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
-	if c <= 0 {
-		c = defaultBufferSize
-	}
-	queue := make(chan []byte, 100)
-	go func() {
-		defer close(queue)
-		for {
-			select {
-			case <-abort:
-				return
-			default:
-				chunk := make([]byte, c)
-				c, err := r.Read(chunk)
-				if err != nil {
-					logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
-					return
-				}
-				queue <- chunk[:c]
-			}
-		}
+func joinPackets(w net.Conn, r net.Conn, p bool) error {
+	defer func() {
+		w.Close()
+		r.Close()
+		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
-	return queue
+	scan := bufio.NewScanner(r)
+	scan.Split(scanPackets)
+	
+	logger.Info(fmt.Sprintf("start sending packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
+	for scan.Scan() {
+		if _, err := w.Write(scan.Bytes()); err != nil {
+			logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
+			return err
+		}
+	}
+	if err := scan.Err(); err != nil {
+		logger.Err(fmt.Sprintf("error while scanning packet from %s: %s", r.RemoteAddr(), err))
+		return err
+	}
+	return nil
 }
 
 //copyPackets read packets from r before copying them to w without touching
 //them. It reads up to c bytes from r. An error is returned on any error
 //occurring during reading and writing.
-func copyPackets(w net.Conn, r net.Conn, c int) error {
+func copyPackets(w net.Conn, r net.Conn, z int) error {
 	defer func() {
 		w.Close()
 		r.Close()
 		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	}()
-	if c <= 0 {
-		c = defaultBufferSize
+	if z <= 0 {
+		z = defaultBufferSize
 	}
-	buf := make([]byte, c)
-
+	chunk := make([]byte, z)
+	
+	var buf bytes.Buffer
 	logger.Info(fmt.Sprintf("start copying packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
-	_, err := io.CopyBuffer(w, r, buf)
-	if err != nil {
-		logger.Err(fmt.Sprintf("error while copying packet to %s: %s", w.RemoteAddr(), err))
-	}
-	return err
-}
-
-//splitPackets read packets from r and split them in chunk of s bytes before
-//sending them to w. It reads up to c bytes from r. An error is returned on any
-//error occuring during reading and writing.
-func splitPackets(w net.Conn, r net.Conn, s, c int) error {
-	if s <= 0 {
-		s = defaultChunkSize
-	}
-	abort := make(chan struct{})
-	defer func() {
-		close(abort)
-		w.Close()
-		r.Close()
-		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
-	}()
-	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
-
-	var buf bytes.Buffer
-	for chunk := range readPackets(r, c, abort) {
-		if len(chunk) < s {
-			if _, err := w.Write(chunk); err != nil {
-				logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
-				return err
-			}
-		} else {
-			buf.Write(chunk)
-			for i, c := 0, buf.Len()/s; i <= c; i++ {
-				if _, err := w.Write(buf.Next(s)); err != nil {
-					logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
-					return err
-				}
-			}
-			buf.Reset()
-		}
-	}
-	return nil
-}
-
-func joinPackets(w net.Conn, r net.Conn, s int, p bool) error {
-	defer func() {
-		w.Close()
-		r.Close()
-		logger.Info(fmt.Sprintf("done transmitting packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
-	}()
-	if s <= 0 {
-		s = defaultChunkSize
-	}
-	var buf bytes.Buffer
-	logger.Info(fmt.Sprintf("start transmitting from %s to %s packets of %d bytes", r.LocalAddr(), w.RemoteAddr(), s))
-
-	chunk := make([]byte, s)
 	for {
 		c, err := r.Read(chunk)
 		if err != nil {
 			logger.Err(fmt.Sprintf("error while reading packet from %s: %s", r.RemoteAddr(), err))
 			return err
 		}
-
-		if c < s || p {
-			buf.Write(chunk[:c])
-			if _, err := io.Copy(w, &buf); err != nil {
-				logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
-				return err
-			}
-		} else {
-			buf.Write(chunk)
+		data := make([]byte, c)
+		copy(data, chunk)
+		
+		sum := md5.Sum(data)
+		binary.Write(&buf, binary.BigEndian, uint32(md5.Size + c))
+		buf.Write(sum[:])
+		buf.Write(data)
+		
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			logger.Err(fmt.Sprintf("error while sending packet to %s: %s", w.RemoteAddr(), err))
+			return err
 		}
+		buf.Reset()
 	}
+}
+
+func scanPackets(chunk []byte, ateof bool) (int, []byte, error) {
+	if len(chunk) < 4+md5.Size {
+		return 0, nil, nil
+	}
+	length := int(binary.BigEndian.Uint32(chunk[:4]))
+	if length > len(chunk) {
+		return 0, nil, nil
+	}
+
+	data := make([]byte, length-md5.Size)
+	copy(data, chunk[4+md5.Size:])
+	
+	sum := md5.Sum(data)
+	if !bytes.Equal(chunk[4:20], sum[:]) {
+		return 0, nil, fmt.Errorf("checksum are not equals (%x != %x)", data[:md5.Size], sum)
+	}
+
+	return length+4, data, nil
 }
 
 func subscribe(source, nic string, v bool) (net.Conn, error) {
