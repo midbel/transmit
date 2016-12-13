@@ -1,3 +1,6 @@
+//package main implements a command to tunnel packets coming from a multicast
+//stream over a TCP connection to another network in order to "recreate" the
+//original stream.
 package main
 
 import (
