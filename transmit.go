@@ -463,7 +463,7 @@ func copyPackets(w net.Conn, r net.Conn, c int) error {
 	}
 	buf := make([]byte, c)
 
-	logger.Info(fmt.Sprintf("start copying from %s to %s packets", r.LocalAddr(), w.RemoteAddr()))
+	logger.Info(fmt.Sprintf("start copying packets from %s to %s", r.LocalAddr(), w.RemoteAddr()))
 	_, err := io.CopyBuffer(w, r, buf)
 	if err != nil {
 		logger.Err(fmt.Sprintf("error while copying packet to %s: %s", w.RemoteAddr(), err))
