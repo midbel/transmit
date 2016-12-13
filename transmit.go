@@ -25,7 +25,7 @@ import (
 
 const helpText = `%[1]s tunnel multicast packets over a TCP connection.
 
-%[1] is a small tool designed to send multicast packets from one network
+%[1]s is a small tool designed to send multicast packets from one network
 to another which missed connectivity with the former.
 
 Its original goal is to be able to forward packets from multicast groups
@@ -447,7 +447,7 @@ func readPackets(r net.Conn, c int, abort <-chan struct{}) <-chan []byte {
 }
 
 //copyPackets read packets from r before copying them to w without touching
-//them. It reads up to c bytes from r. An error is returned on any error 
+//them. It reads up to c bytes from r. An error is returned on any error
 //occurring during reading and writing.
 func copyPackets(w net.Conn, r net.Conn, c int) error {
 	defer func() {
