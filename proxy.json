@@ -1,0 +1,24 @@
+{
+  "gateway": "127.0.0.1:54321",
+  "proxy": "127.0.0.1:54322",
+  "verbose": true,
+  "size": 1024,
+  "syslog": "",
+  "certificate": {
+    "location": "etc/tls",
+    "insecure": true,
+    "server": "linn"
+  },
+  "groups": [
+    {
+      "id": "DATA-TM-OPS",
+      "addr": "239.0.0.2:31002",
+      "ifi": ""
+    },
+    {
+      "id": "DATA-PP-OPS",
+      "addr": "239.0.0.2:31001",
+      "ifi": ""
+    }
+  ]
+}
