@@ -98,8 +98,7 @@ func (g *Group) Read(b []byte) (int, error) {
 	sum := make([]byte, 4)
 	binary.BigEndian.PutUint32(sum, adler32.Checksum(d[:r]))
 
-	d = append(d[:r], sum...)
-	return copy(b, d), nil
+	return copy(b, append(d[:r], sum...)), nil
 }
 
 func (g *Group) Write(b []byte) (int, error) {
@@ -123,7 +122,7 @@ func (g *Group) UnmarshalJSON(b []byte) error {
 	if err = json.Unmarshal(b, &v); err != nil {
 		return err
 	}
-	u, err := uuid.UUID5(uuid.OID, []byte(v.Id))
+	u, err := uuid.UUID5(uuid.URL, []byte(v.Id))
 	if err != nil {
 		return err
 	}
