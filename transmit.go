@@ -1,12 +1,13 @@
 package transmit
 
 import (
-	"bufio"
 	"bytes"
+	"bufio"
 	"crypto/rand"
-	"encoding/binary"
 	"errors"
+	"encoding/binary"
 	"hash/adler32"
+	"io"
 	"net"
 	"sync/atomic"
 
@@ -14,8 +15,8 @@ import (
 )
 
 var (
-	ErrCorrupted = "packet corrupted"
-	ErrUnknownId = "unknown packet id"
+	ErrCorrupted = errors.New("packet corrupted")
+	ErrUnknownId = errors.New("unknown packet id")
 )
 
 const (
@@ -23,8 +24,28 @@ const (
 	Padding = 512
 )
 
-func Subscribe() (net.Conn, error) {
-	return nil, nil
+func Subscribe(a, n string) (net.Conn, error) {
+	addr, err := net.ResolveUDPAddr("udp", a)
+	if err != nil {
+		return err
+	}
+	i, err := net.InterfaceByName(n)
+	if err != nil && len(n) > 0 {
+		return nil, err
+	}
+	c, err := net.ListenMulticastUDP("udp", i, addr)
+	if err != nil {
+		return nil, err
+	}
+	return &subscriber{c}, nil
+}
+
+func Dispatch(a string) (net.Conn) {
+	c, err := net.Dial("udp", a)
+	if err != nil {
+		return nil, err
+	}
+	return &subscriber{c}
 }
 
 func Forward(a, s string) (net.Conn, error) {
@@ -32,11 +53,11 @@ func Forward(a, s string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	id, _ := uuid.UUID5(uuid.URL, s)
+	id, _ := uuid.UUID5(uuid.URL, []byte(s))
 
 	return &forwarder{
-		Conn:   c,
-		id:     id,
+		Conn: c,
+		id  : id,
 		reader: bufio.NewReader(rand.Reader, 4096),
 	}, nil
 }
