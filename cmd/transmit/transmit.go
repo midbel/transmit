@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	_ "github.com/midbel/transmit"
 	"github.com/midbel/uuid"
 )
 

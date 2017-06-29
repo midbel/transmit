@@ -24,6 +24,14 @@ const (
 	Padding = 512
 )
 
+const (
+	Copy uint16 = iota
+	Reject
+	Accept
+	Abort
+	Done
+)
+
 type Route struct{
 		Id   string
 		Addr string
@@ -32,7 +40,7 @@ type Route struct{
 func Subscribe(a, n string) (net.Conn, error) {
 	addr, err := net.ResolveUDPAddr("udp", a)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	i, err := net.InterfaceByName(n)
 	if err != nil && len(n) > 0 {
@@ -45,12 +53,12 @@ func Subscribe(a, n string) (net.Conn, error) {
 	return &subscriber{c}, nil
 }
 
-func Dispatch(a string) (net.Conn) {
+func Dispatch(a string) (net.Conn, error) {
 	c, err := net.Dial("udp", a)
 	if err != nil {
 		return nil, err
 	}
-	return &subscriber{c}
+	return &subscriber{c}, nil
 }
 
 func Forward(a, s string) (net.Conn, error) {
@@ -62,8 +70,8 @@ func Forward(a, s string) (net.Conn, error) {
 
 	return &forwarder{
 		Conn: c,
-		id  : id,
-		reader: bufio.NewReader(rand.Reader, 4096),
+		id  : id.Bytes(),
+		reader: bufio.NewReaderSize(rand.Reader, 4096),
 	}, nil
 }
 
@@ -73,7 +81,7 @@ type Router struct {
 	routes map[string]net.Conn
 }
 
-func (r *Router) Accept(net.Conn, net.Conn, error) {
+func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	c, err := r.Listener.Accept()
 	if err != nil {
 		return nil, nil, err
@@ -83,8 +91,7 @@ func (r *Router) Accept(net.Conn, net.Conn, error) {
 		c.Close()
 		return nil, nil, err
 	}
-	var ok bool
-	w, ok = g.groups[string(id)]
+	w, ok := r.routes[string(id)]
 	if !ok {
 		c.Close()
 		return nil, nil, ErrUnknownId
@@ -92,7 +99,7 @@ func (r *Router) Accept(net.Conn, net.Conn, error) {
 	return &forwarder{Conn: c, id: id}, &subscriber{w}, nil
 }
 
-func NewRouter(a string, rs []Route) (*Gateway, error) {
+func NewRouter(a string, rs []Route) (*Router, error) {
 	l, err := net.Listen("tcp", a)
 	if err != nil {
 		return nil, err
@@ -102,11 +109,11 @@ func NewRouter(a string, rs []Route) (*Gateway, error) {
 		id, _ := uuid.UUID5(uuid.URL, []byte(r.Id))
 		c, err := net.Dial("udp", r.Addr)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		gs[id.String()] = c
 	}
-	return &Gateway{Listener: l, routes: gs}, nil
+	return &Router{Listener: l, routes: gs}, nil
 }
 
 type subscriber struct {
@@ -130,7 +137,7 @@ func (s *subscriber) Write(b []byte) (int, error) {
 	if a := adler32.Checksum(d); a != binary.BigEndian.Uint32(sum) {
 		return 0, ErrCorrupted
 	}
-	_, err := f.Conn.Write(d)
+	_, err := s.Conn.Write(d)
 	return len(b), err
 }
 
@@ -139,7 +146,7 @@ type forwarder struct {
 
 	id []byte
 
-	sequence uint16
+	sequence uint32
 	padding  uint16
 
 	reader io.Reader
@@ -164,12 +171,12 @@ func (f *forwarder) Write(b []byte) (int, error) {
 	buf.Write(f.id)
 	binary.Write(buf, binary.BigEndian, uint16(len(b)))
 	binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
-	buf.Write(d)
+	buf.Write(b)
 
-	if b.Len() < f.padding {
-		io.CopyN(b, f.reader, f.padding)
+	if buf.Len() < int(f.padding) {
+		io.CopyN(buf, f.reader, int64(f.padding))
 	}
 
 	_, err := io.Copy(f.Conn, buf)
-	return len(d), err
+	return len(b), err
 }
