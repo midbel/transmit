@@ -24,6 +24,11 @@ const (
 	Padding = 512
 )
 
+type Route struct{
+		Id   string
+		Addr string
+}
+
 func Subscribe(a, n string) (net.Conn, error) {
 	addr, err := net.ResolveUDPAddr("udp", a)
 	if err != nil {
@@ -60,6 +65,48 @@ func Forward(a, s string) (net.Conn, error) {
 		id  : id,
 		reader: bufio.NewReader(rand.Reader, 4096),
 	}, nil
+}
+
+type Router struct {
+	net.Listener
+
+	routes map[string]net.Conn
+}
+
+func (r *Router) Accept(net.Conn, net.Conn, error) {
+	c, err := r.Listener.Accept()
+	if err != nil {
+		return nil, nil, err
+	}
+	id := make([]byte, Size)
+	if _, err := io.ReadFull(c, id); err != nil {
+		c.Close()
+		return nil, nil, err
+	}
+	var ok bool
+	w, ok = g.groups[string(id)]
+	if !ok {
+		c.Close()
+		return nil, nil, ErrUnknownId
+	}
+	return &forwarder{Conn: c, id: id}, &subscriber{w}, nil
+}
+
+func NewRouter(a string, rs []Route) (*Gateway, error) {
+	l, err := net.Listen("tcp", a)
+	if err != nil {
+		return nil, err
+	}
+	gs := make(map[string]net.Conn)
+	for _, r := range rs {
+		id, _ := uuid.UUID5(uuid.URL, []byte(r.Id))
+		c, err := net.Dial("udp", r.Addr)
+		if err != nil {
+			return err
+		}
+		gs[id.String()] = c
+	}
+	return &Gateway{Listener: l, routes: gs}, nil
 }
 
 type subscriber struct {
