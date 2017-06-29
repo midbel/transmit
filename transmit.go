@@ -25,9 +25,10 @@ const (
 )
 
 const (
-	Copy uint16 = iota
-	Reject
+	Bind uint16 = iota
 	Accept
+	Reject
+	Copy
 	Abort
 	Done
 )
