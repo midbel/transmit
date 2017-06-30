@@ -22,10 +22,9 @@ var (
 	ErrUnknownId = errors.New("unknown packet id")
 )
 
-const (
-	Size    = 22
-	Padding = 512
-)
+var Padding = 512
+
+const Size = 22
 
 const (
 	Bind uint16 = iota
