@@ -1,18 +1,21 @@
 package transmit
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"crypto/rand"
-	"errors"
 	"encoding/binary"
+	"errors"
 	"hash/adler32"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/midbel/uuid"
 )
+
+var ErrClosed = errors.New("closed")
 
 var (
 	ErrCorrupted = errors.New("packet corrupted")
@@ -33,9 +36,10 @@ const (
 	Done
 )
 
-type Route struct{
-		Id   string
-		Addr string
+type Route struct {
+	Id   string `json:"id"`
+	Addr string `json:"addr"`
+	Eth  string `json:"ifi"`
 }
 
 func Subscribe(a, n string) (net.Conn, error) {
@@ -69,17 +73,22 @@ func Forward(a, s string) (net.Conn, error) {
 	}
 	id, _ := uuid.UUID5(uuid.URL, []byte(s))
 
-	return &forwarder{
-		Conn: c,
-		id  : id.Bytes(),
+	f := &forwarder{
+		Conn:   c,
+		id:     id.Bytes(),
 		reader: bufio.NewReaderSize(rand.Reader, 4096),
-	}, nil
+	}
+	if _, err := f.Write([]byte{}); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 type Router struct {
 	net.Listener
 
-	routes map[string]net.Conn
+	routes map[string]*pool
 }
 
 func (r *Router) Accept() (net.Conn, net.Conn, error) {
@@ -92,12 +101,16 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 		c.Close()
 		return nil, nil, err
 	}
-	w, ok := r.routes[string(id)]
+	p, ok := r.routes[string(id[:uuid.Size])]
 	if !ok {
 		c.Close()
 		return nil, nil, ErrUnknownId
 	}
-	return &forwarder{Conn: c, id: id}, &subscriber{w}, nil
+	w, err := p.Acquire()
+	if err != nil {
+		return nil, nil, err
+	}
+	return &forwarder{Conn: c, id: id[:uuid.Size]}, w, nil
 }
 
 func NewRouter(a string, rs []Route) (*Router, error) {
@@ -105,14 +118,14 @@ func NewRouter(a string, rs []Route) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	gs := make(map[string]net.Conn)
+	gs := make(map[string]*pool)
 	for _, r := range rs {
 		id, _ := uuid.UUID5(uuid.URL, []byte(r.Id))
-		c, err := net.Dial("udp", r.Addr)
-		if err != nil {
-			return nil, err
+		p := &pool{
+			c: make(chan net.Conn, 5),
+			a: r.Addr,
 		}
-		gs[id.String()] = c
+		gs[string(id.Bytes())] = p
 	}
 	return &Router{Listener: l, routes: gs}, nil
 }
@@ -134,6 +147,9 @@ func (s *subscriber) Read(b []byte) (int, error) {
 }
 
 func (s *subscriber) Write(b []byte) (int, error) {
+	if len(b) <= Size {
+		return len(b), nil
+	}
 	d, sum := b[Size:len(b)-adler32.Size], b[len(b)-adler32.Size:]
 	if a := adler32.Checksum(d); a != binary.BigEndian.Uint32(sum) {
 		return 0, ErrCorrupted
@@ -159,10 +175,10 @@ func (f *forwarder) Read(b []byte) (int, error) {
 	if err != nil && r == 0 {
 		return r, err
 	}
-	s := binary.BigEndian.Uint16(b[16:18])
-	if !bytes.Equal(b[:uuid.Size], f.id) {
+	if !bytes.Equal(d[:uuid.Size], f.id) {
 		return 0, ErrUnknownId
 	}
+	s := binary.BigEndian.Uint16(b[16:18])
 	return copy(d, b[:Size+s]), err
 }
 
@@ -180,4 +196,52 @@ func (f *forwarder) Write(b []byte) (int, error) {
 
 	_, err := io.Copy(f.Conn, buf)
 	return len(b), err
+}
+
+type pool struct {
+	a string
+	c chan net.Conn
+
+	closed bool
+	mu     sync.Mutex
+}
+
+func (p *pool) Acquire() (net.Conn, error) {
+	select {
+	case c, ok := <-p.c:
+		if !ok {
+			return nil, ErrClosed
+		}
+		return c, nil
+	default:
+		return Dispatch(p.a)
+	}
+}
+
+func (p *pool) Release(c net.Conn) error {
+	if p.closed {
+		return ErrClosed
+	}
+	select {
+	case p.c <- c:
+		return nil
+	default:
+		return c.Close()
+	}
+}
+
+func (p *pool) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return ErrClosed
+	}
+	var err error
+	for c := range p.c {
+		if e := c.Close(); err == nil && e != nil {
+			err = e
+		}
+	}
+	close(p.c)
+	return err
 }
