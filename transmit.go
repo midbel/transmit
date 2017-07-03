@@ -112,6 +112,16 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	return &forwarder{Conn: c, id: id[:uuid.Size]}, w, nil
 }
 
+func (r *Router) Close() error {
+	err := r.Listener.Close()
+	for _, p := range r.routes {
+		if e := p.Close(); err == nil && e != nil {
+			err = e
+		}
+	}
+	return err
+}
+
 func NewRouter(a string, rs []Route) (*Router, error) {
 	l, err := net.Listen("tcp", a)
 	if err != nil {

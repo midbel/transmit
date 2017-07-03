@@ -61,6 +61,8 @@ func distribute(a, p string, rs []transmit.Route) error {
 	if err != nil {
 		return err
 	}
+	defer r.Close()
+
 	var wg sync.WaitGroup
 	for {
 		f, s, err := r.Accept()
