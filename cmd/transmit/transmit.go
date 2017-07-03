@@ -21,7 +21,6 @@ type Config struct {
 	Verbose bool             `json:"-"`
 	Address string           `json:"gateway"`
 	Proxy   string           `json:"proxy"`
-	Padding int              `json:"padding"`
 	Routes  []transmit.Route `json:"routes"`
 }
 
@@ -40,7 +39,6 @@ func init() {
 	if err := json.NewDecoder(f).Decode(&config); err != nil {
 		log.Fatalln(err)
 	}
-	transmit.Padding = config.Padding
 }
 
 func main() {
