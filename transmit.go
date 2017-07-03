@@ -23,7 +23,7 @@ var (
 )
 
 const (
-	Size = 22
+	Size    = 22
 	Padding = 512
 )
 
