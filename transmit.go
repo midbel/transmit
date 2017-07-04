@@ -75,10 +75,10 @@ func Forward(a, s string) (net.Conn, error) {
 	id, _ := uuid.UUID5(uuid.URL, []byte(s))
 
 	f := &forwarder{
-		Conn:   c,
-		id:     id.Bytes(),
+		Conn:    c,
+		id:      id.Bytes(),
 		padding: Padding,
-		reader: bufio.NewReaderSize(rand.Reader, 4096),
+		reader:  bufio.NewReaderSize(rand.Reader, 4096),
 	}
 	if _, err := f.Write([]byte{}); err != nil {
 		f.Close()

@@ -35,13 +35,16 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer f.Close()
+	f.Close()
 	if err := json.NewDecoder(f).Decode(&config); err != nil {
 		log.Fatalln(err)
 	}
 
 	switch {
 	case config.Listen:
+		if len(config.Routes) == 0 {
+			log.Fatalln("no routes configured! abort...")
+		}
 		sort.Slice(config.Routes, func(i, j int) bool {
 			return config.Routes[i].Addr < config.Routes[j].Addr
 		})
