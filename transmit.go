@@ -67,6 +67,19 @@ func Dispatch(a string) (net.Conn, error) {
 }
 
 func Forward(a, s string) (net.Conn, error) {
+	return newForwarder(a, s)
+}
+
+func Proxy(a, s string) (net.Conn, error) {
+	f, err := newForwarder(a, s)
+	if err != nil {
+		return nil, err
+	}
+	f.id = nil
+	return f, err
+}
+
+func newForwarder(a, s string) (*forwarder, error) {
 	c, err := net.Dial("tcp", a)
 	if err != nil {
 		return nil, err
@@ -76,6 +89,7 @@ func Forward(a, s string) (net.Conn, error) {
 	f := &forwarder{
 		Conn:   c,
 		id:     id.Bytes(),
+		padding: Padding,
 		reader: bufio.NewReaderSize(rand.Reader, 4096),
 	}
 	if _, err := f.Write([]byte{}); err != nil {
@@ -100,8 +114,10 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	if _, err := io.ReadFull(c, id); err != nil {
 		c.Close()
 		return nil, nil, err
+	} else {
+		id = id[:uuid.Size]
 	}
-	p, ok := r.routes[string(id[:uuid.Size])]
+	p, ok := r.routes[string(id)]
 	if !ok {
 		c.Close()
 		return nil, nil, ErrUnknownId
@@ -110,7 +126,7 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return &forwarder{Conn: c, id: id[:uuid.Size]}, w, nil
+	return &forwarder{Conn: c, id: id}, w, nil
 }
 
 func (r *Router) Close() error {
@@ -149,20 +165,20 @@ func (s *subscriber) Read(b []byte) (int, error) {
 	r, err := s.Conn.Read(d)
 	if err != nil && r == 0 {
 		return r, err
+	} else {
+		d = d[:r]
 	}
 	sum := make([]byte, 4)
-	binary.BigEndian.PutUint32(sum, adler32.Checksum(d[:r]))
+	binary.BigEndian.PutUint32(sum, adler32.Checksum(d))
+	d = append(d, sum...)
 
-	return copy(b, append(d[:r], sum...)), err
+	return copy(b, d), err
 }
 
 func (s *subscriber) Write(b []byte) (int, error) {
-	if len(b) <= Size {
-		return len(b), nil
-	}
 	d, sum := b[Size:len(b)-adler32.Size], b[len(b)-adler32.Size:]
 	if a := adler32.Checksum(d); a != binary.BigEndian.Uint32(sum) {
-		return 0, ErrCorrupted
+		return len(b), ErrCorrupted
 	}
 	_, err := s.Conn.Write(d)
 	return len(b), err
@@ -184,20 +200,24 @@ func (f *forwarder) Read(b []byte) (int, error) {
 	r, err := f.Conn.Read(d)
 	if err != nil && r == 0 {
 		return r, err
+	} else {
+		d = d[:r]
 	}
 	if !bytes.Equal(d[:uuid.Size], f.id) {
-		return 0, ErrUnknownId
+		return r, ErrUnknownId
 	}
-	s := binary.BigEndian.Uint16(b[16:18])
-	return copy(d, b[:Size+s]), err
+	s := binary.BigEndian.Uint16(d[16:18])
+	return copy(b, d[:Size+s]), err
 }
 
 func (f *forwarder) Write(b []byte) (int, error) {
 	buf := new(bytes.Buffer)
 
-	buf.Write(f.id)
-	binary.Write(buf, binary.BigEndian, uint16(len(b)))
-	binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
+	if len(f.id) > 0 {
+		buf.Write(f.id)
+		binary.Write(buf, binary.BigEndian, uint16(len(b)))
+		binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
+	}
 	buf.Write(b)
 
 	if buf.Len() < int(f.padding) {
