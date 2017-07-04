@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -97,7 +96,7 @@ func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
 		return rs[i].Addr >= a
 	})
 	if ix < len(rs) && rs[ix].Addr == a {
-		return transmit.Proxy(p, rs[ix].Id)
+		return transmit.Forward(p, rs[ix].Id)
 	}
 	return nil, fmt.Errorf("no suitable route found for %s", a)
 }
@@ -127,6 +126,12 @@ func forward(a string, rs []transmit.Route) error {
 	return nil
 }
 
+type nopCloser struct {
+	io.Writer
+}
+
+func (n *nopCloser) Close() error { return nil }
+
 func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 	defer func() {
 		r.Close()
@@ -136,7 +141,7 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 		}
 	}()
 	if x != nil {
-		r = ioutil.NopCloser(io.TeeReader(r, x))
+		w = &nopCloser{io.MultiWriter(x, w)}
 	}
 	for {
 		_, err := io.Copy(w, r)

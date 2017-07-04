@@ -8,6 +8,7 @@ import (
 	"errors"
 	"hash/adler32"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -67,19 +68,6 @@ func Dispatch(a string) (net.Conn, error) {
 }
 
 func Forward(a, s string) (net.Conn, error) {
-	return newForwarder(a, s)
-}
-
-func Proxy(a, s string) (net.Conn, error) {
-	f, err := newForwarder(a, s)
-	if err != nil {
-		return nil, err
-	}
-	f.id = nil
-	return f, err
-}
-
-func newForwarder(a, s string) (*forwarder, error) {
 	c, err := net.Dial("tcp", a)
 	if err != nil {
 		return nil, err
@@ -176,7 +164,7 @@ func (s *subscriber) Read(b []byte) (int, error) {
 }
 
 func (s *subscriber) Write(b []byte) (int, error) {
-	d, sum := b[Size:len(b)-adler32.Size], b[len(b)-adler32.Size:]
+	d, sum := b[:len(b)-adler32.Size], b[len(b)-adler32.Size:]
 	if a := adler32.Checksum(d); a != binary.BigEndian.Uint32(sum) {
 		return len(b), ErrCorrupted
 	}
@@ -202,29 +190,31 @@ func (f *forwarder) Read(b []byte) (int, error) {
 		return r, err
 	} else {
 		d = d[:r]
+		go log.Printf("%d bytes read from %s", r, f.LocalAddr())
 	}
 	if !bytes.Equal(d[:uuid.Size], f.id) {
 		return r, ErrUnknownId
 	}
 	s := binary.BigEndian.Uint16(d[16:18])
-	return copy(b, d[:Size+s]), err
+	return copy(b, d[Size:Size+s]), err
 }
 
 func (f *forwarder) Write(b []byte) (int, error) {
 	buf := new(bytes.Buffer)
 
-	if len(f.id) > 0 {
-		buf.Write(f.id)
-		binary.Write(buf, binary.BigEndian, uint16(len(b)))
-		binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
-	}
+	buf.Write(f.id)
+	binary.Write(buf, binary.BigEndian, uint16(len(b)))
+	binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
 	buf.Write(b)
 
 	if buf.Len() < int(f.padding) {
 		io.CopyN(buf, f.reader, int64(f.padding))
 	}
 
-	_, err := io.Copy(f.Conn, buf)
+	w, err := io.Copy(f.Conn, buf)
+	if err == nil {
+		go log.Printf("%d bytes written to %s", w, f.RemoteAddr())
+	}
 	return len(b), err
 }
 
