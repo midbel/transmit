@@ -35,10 +35,10 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	f.Close()
 	if err := json.NewDecoder(f).Decode(&config); err != nil {
 		log.Fatalln(err)
 	}
+	f.Close()
 
 	switch {
 	case config.Listen:
