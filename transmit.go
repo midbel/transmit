@@ -8,7 +8,7 @@ import (
 	"errors"
 	"hash/adler32"
 	"io"
-	"log"
+	//"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -24,7 +24,7 @@ var (
 )
 
 const (
-	Size    = 22
+	Size    = 26
 	Padding = 512
 )
 
@@ -184,7 +184,9 @@ type forwarder struct {
 }
 
 func (f *forwarder) Read(b []byte) (int, error) {
-	d := make([]byte, len(b))
+	d, err := readFrom(f.Conn, f.id)
+	return copy(b, d), err
+	/*d := make([]byte, len(b))
 	r, err := f.Conn.Read(d)
 	if err != nil && r == 0 {
 		return r, err
@@ -196,11 +198,14 @@ func (f *forwarder) Read(b []byte) (int, error) {
 		return r, ErrUnknownId
 	}
 	s := binary.BigEndian.Uint16(d[16:18])
-	return copy(b, d[Size:Size+s]), err
+	return copy(b, d[Size:Size+s]), err*/
 }
 
 func (f *forwarder) Write(b []byte) (int, error) {
-	buf := new(bytes.Buffer)
+	s := atomic.AddUint32(&f.sequence, 1)
+	err := writeTo(f.Conn, s, f.id, b)
+	return len(b), err
+	/*buf := new(bytes.Buffer)
 
 	buf.Write(f.id)
 	binary.Write(buf, binary.BigEndian, uint16(len(b)))
@@ -215,7 +220,71 @@ func (f *forwarder) Write(b []byte) (int, error) {
 	if err == nil {
 		go log.Printf("%d bytes written to %s", w, f.RemoteAddr())
 	}
-	return len(b), err
+	return len(b), err*/
+}
+
+func readFrom(r io.Reader, i []byte) ([]byte, error) {
+	w := new(bytes.Buffer)
+
+	for {
+		id := make([]byte, uuid.Size)
+		if _, err := io.ReadFull(r, id); err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(id, i) {
+			return nil, ErrUnknownId
+		}
+		v := struct {
+			Length   uint16
+			Sequence uint32
+			N        uint8
+			C        uint8
+			R        uint16
+		}{}
+		if err := binary.Read(r, binary.BigEndian, &v); err != nil {
+			return nil, err
+		}
+		if _, err := io.CopyN(w, r, int64(v.R)); err != nil {
+			return nil, err
+		}
+		if v.N == v.C {
+			break
+		}
+	}
+	return w.Bytes(), nil
+}
+
+func writeTo(w io.Writer, s uint32, id, b []byte) error {
+	const size = 1024
+	r := bytes.NewReader(b)
+
+	n := r.Size() / size
+	if m := r.Size() % size; n > 0 && m != 0 {
+		n += 1
+	}
+	for i, j := 0, 0; r.Len() > 0; i, j = i+size, j+1 {
+		buf := bytes.NewBuffer(id)
+
+		binary.Write(buf, binary.BigEndian, s)
+		binary.Write(buf, binary.BigEndian, uint16(len(b)))
+		binary.Write(buf, binary.BigEndian, uint8(n))
+		binary.Write(buf, binary.BigEndian, uint8(j))
+
+		s := size
+		if r.Len() < size {
+			s = r.Len()
+		}
+		binary.Write(buf, binary.BigEndian, uint16(s))
+
+		io.CopyN(buf, r, int64(size))
+		if buf.Len() < Padding {
+			io.CopyN(buf, rand.Reader, Padding)
+		}
+		if _, err := io.Copy(w, buf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type pool struct {
