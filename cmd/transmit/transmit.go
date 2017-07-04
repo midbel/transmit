@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"sort"
 	"sync"
 
 	"github.com/midbel/transmit"
@@ -24,10 +26,8 @@ type Config struct {
 	Routes  []transmit.Route `json:"routes"`
 }
 
-var config *Config
-
-func init() {
-	config = new(Config)
+func main() {
+	config := new(Config)
 	flag.BoolVar(&config.Listen, "l", config.Listen, "listen")
 	flag.BoolVar(&config.Verbose, "v", config.Verbose, "verbose")
 	flag.Parse()
@@ -36,15 +36,16 @@ func init() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer f.Close()
 	if err := json.NewDecoder(f).Decode(&config); err != nil {
 		log.Fatalln(err)
 	}
-}
 
-func main() {
-	var err error
 	switch {
 	case config.Listen:
+		sort.Slice(config.Routes, func(i, j int) bool {
+			return config.Routes[i].Addr < config.Routes[j].Addr
+		})
 		err = distribute(config.Address, config.Proxy, config.Routes)
 	default:
 		err = forward(config.Address, config.Routes)
@@ -59,40 +60,46 @@ func distribute(a, p string, rs []transmit.Route) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("start listening on %s", a)
 	defer r.Close()
 
 	var wg sync.WaitGroup
 	for {
 		f, s, err := r.Accept()
 		if err != nil {
-			log.Println(err)
+			log.Printf("connection rejected: %s", err)
 			continue
 		}
 		wg.Add(1)
 		go func(r, w net.Conn) {
-			var (
-				x net.Conn
-				i string
-			)
-			a := w.RemoteAddr()
-			for _, r := range rs {
-				if r.Addr == a.String() {
-					i = r.Id
-					break
-				}
-			}
-			if c, err := transmit.Forward(p, i); err == nil {
-				x = c
-			}
-			if err := relay(r, w, x); err != nil && err != ErrDone {
+			x, err := proxy(p, w.RemoteAddr().String(), rs)
+			if err == nil {
+				log.Printf("proxy packets from %s to %s", r.RemoteAddr(), x.RemoteAddr())
+			} else {
 				log.Println(err)
 			}
+
+			log.Printf("start transmitting from %s to %s", r.RemoteAddr(), w.RemoteAddr())
+			if err := relay(r, w, x); err != nil && err != ErrDone {
+				log.Println("unexpected error while transmitting packets:", err)
+			}
 			wg.Done()
+			log.Printf("done transmitting from %s to %s", r.RemoteAddr(), w.RemoteAddr())
 		}(f, s)
 	}
 	wg.Wait()
 
 	return nil
+}
+
+func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
+	ix := sort.Search(len(rs), func(i int) bool {
+		return rs[i].Addr >= a
+	})
+	if ix < len(rs) && rs[ix].Addr == a {
+		return transmit.Proxy(p, rs[ix].Id)
+	}
+	return nil, fmt.Errorf("no suitable route found for %s", a)
 }
 
 func forward(a string, rs []transmit.Route) error {
@@ -108,10 +115,12 @@ func forward(a string, rs []transmit.Route) error {
 		}
 		wg.Add(1)
 		go func(r, w net.Conn) {
+			log.Printf("start transmitting from %s to %s", r.LocalAddr(), w.RemoteAddr())
 			if err := relay(r, w, nil); err != nil && err != ErrDone {
-				log.Println(err)
+				log.Println("unexpected error while transmitting packets:", err)
 			}
 			wg.Done()
+			log.Printf("done transmitting from %s to %s", r.LocalAddr(), w.RemoteAddr())
 		}(s, f)
 	}
 	wg.Wait()
@@ -133,6 +142,8 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 		_, err := io.Copy(w, r)
 		switch err {
 		case nil:
+		case transmit.ErrCorrupted:
+			log.Println(err)
 		case io.EOF:
 			return ErrDone
 		default:
