@@ -3,12 +3,14 @@ package transmit
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"hash/adler32"
 	"io"
-	//"log"
+	"io/ioutil"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -38,9 +40,10 @@ const (
 )
 
 type Route struct {
-	Id   string `json:"id"`
-	Addr string `json:"addr"`
-	Eth  string `json:"ifi"`
+	Id      string `json:"id"`
+	Addr    string `json:"addr"`
+	Eth     string `json:"ifi"`
+	Enabled bool   `json:"enabled"`
 }
 
 func Subscribe(a, n string) (net.Conn, error) {
@@ -80,7 +83,7 @@ func Forward(a, s string) (net.Conn, error) {
 		padding: Padding,
 		reader:  bufio.NewReaderSize(rand.Reader, 4096),
 	}
-	if _, err := f.Write([]byte{}); err != nil {
+	if _, err := f.Write(f.id); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -98,7 +101,7 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	id := make([]byte, Size)
+	id := make([]byte, Size+uuid.Size)
 	if _, err := io.ReadFull(c, id); err != nil {
 		c.Close()
 		return nil, nil, err
@@ -110,6 +113,7 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 		c.Close()
 		return nil, nil, ErrUnknownId
 	}
+	io.CopyN(ioutil.Discard, c, Padding)
 	w, err := p.Acquire()
 	if err != nil {
 		return nil, nil, err
@@ -155,6 +159,7 @@ func (s *subscriber) Read(b []byte) (int, error) {
 		return r, err
 	} else {
 		d = d[:r]
+		go log.Printf("%d bytes read from %s (%x)", r, s.LocalAddr(), md5.Sum(d))
 	}
 	sum := make([]byte, 4)
 	binary.BigEndian.PutUint32(sum, adler32.Checksum(d))
@@ -169,6 +174,9 @@ func (s *subscriber) Write(b []byte) (int, error) {
 		return len(b), ErrCorrupted
 	}
 	_, err := s.Conn.Write(d)
+	if err == nil {
+		go log.Printf("%d bytes written to %s (%x)", len(d), s.RemoteAddr(), md5.Sum(d))
+	}
 	return len(b), err
 }
 
@@ -185,67 +193,42 @@ type forwarder struct {
 
 func (f *forwarder) Read(b []byte) (int, error) {
 	d, err := readFrom(f.Conn, f.id)
+	go log.Printf("%d bytes received from %s", len(d), f.RemoteAddr())
 	return copy(b, d), err
-	/*d := make([]byte, len(b))
-	r, err := f.Conn.Read(d)
-	if err != nil && r == 0 {
-		return r, err
-	} else {
-		d = d[:r]
-		go log.Printf("%d bytes read from %s", r, f.LocalAddr())
-	}
-	if !bytes.Equal(d[:uuid.Size], f.id) {
-		return r, ErrUnknownId
-	}
-	s := binary.BigEndian.Uint16(d[16:18])
-	return copy(b, d[Size:Size+s]), err*/
 }
 
 func (f *forwarder) Write(b []byte) (int, error) {
 	s := atomic.AddUint32(&f.sequence, 1)
 	err := writeTo(f.Conn, s, f.id, b)
+	go log.Printf("%d bytes sent to %s", len(b), f.RemoteAddr())
 	return len(b), err
-	/*buf := new(bytes.Buffer)
+}
 
-	buf.Write(f.id)
-	binary.Write(buf, binary.BigEndian, uint16(len(b)))
-	binary.Write(buf, binary.BigEndian, atomic.AddUint32(&f.sequence, 1))
-	buf.Write(b)
-
-	if buf.Len() < int(f.padding) {
-		io.CopyN(buf, f.reader, int64(f.padding))
-	}
-
-	w, err := io.Copy(f.Conn, buf)
-	if err == nil {
-		go log.Printf("%d bytes written to %s", w, f.RemoteAddr())
-	}
-	return len(b), err*/
+type block struct {
+	Id       [uuid.Size]byte
+	Length   uint16
+	Sequence uint32
+	N        uint8
+	C        uint8
+	R        uint16
 }
 
 func readFrom(r io.Reader, i []byte) ([]byte, error) {
 	w := new(bytes.Buffer)
 
 	for {
-		id := make([]byte, uuid.Size)
-		if _, err := io.ReadFull(r, id); err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(id, i) {
-			return nil, ErrUnknownId
-		}
-		v := struct {
-			Length   uint16
-			Sequence uint32
-			N        uint8
-			C        uint8
-			R        uint16
-		}{}
-		if err := binary.Read(r, binary.BigEndian, &v); err != nil {
+		v := new(block)
+		if err := binary.Read(r, binary.BigEndian, v); err != nil {
 			return nil, err
 		}
 		if _, err := io.CopyN(w, r, int64(v.R)); err != nil {
 			return nil, err
+		}
+		if v.R < Padding {
+			io.CopyN(ioutil.Discard, r, Padding)
+		}
+		if !bytes.Equal(v.Id[:], i) {
+			return nil, ErrUnknownId
 		}
 		if v.N == v.C {
 			break
@@ -262,27 +245,30 @@ func writeTo(w io.Writer, s uint32, id, b []byte) error {
 	if m := r.Size() % size; n > 0 && m != 0 {
 		n += 1
 	}
-	for i, j := 0, 0; r.Len() > 0; i, j = i+size, j+1 {
-		buf := bytes.NewBuffer(id)
+	var j uint8
+	for r.Len() > 0 {
+		buf := new(bytes.Buffer)
 
+		buf.Write(id)
 		binary.Write(buf, binary.BigEndian, s)
 		binary.Write(buf, binary.BigEndian, uint16(len(b)))
 		binary.Write(buf, binary.BigEndian, uint8(n))
 		binary.Write(buf, binary.BigEndian, uint8(j))
 
-		s := size
+		count := size
 		if r.Len() < size {
-			s = r.Len()
+			count = r.Len()
 		}
-		binary.Write(buf, binary.BigEndian, uint16(s))
+		binary.Write(buf, binary.BigEndian, uint16(count))
 
-		io.CopyN(buf, r, int64(size))
-		if buf.Len() < Padding {
+		io.CopyN(buf, r, int64(count))
+		if count < Padding {
 			io.CopyN(buf, rand.Reader, Padding)
 		}
 		if _, err := io.Copy(w, buf); err != nil {
 			return err
 		}
+		j++
 	}
 	return nil
 }

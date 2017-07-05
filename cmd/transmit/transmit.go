@@ -77,8 +77,6 @@ func distribute(a, p string, rs []transmit.Route) error {
 			x, err := proxy(p, w.RemoteAddr().String(), rs)
 			if err == nil {
 				log.Printf("proxy packets from %s to %s", r.RemoteAddr(), x.RemoteAddr())
-			} else {
-				log.Println(err)
 			}
 
 			log.Printf("start transmitting from %s to %s", r.RemoteAddr(), w.RemoteAddr())
@@ -107,6 +105,9 @@ func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
 func forward(a string, rs []transmit.Route) error {
 	var wg sync.WaitGroup
 	for _, r := range rs {
+		if !r.Enabled {
+			continue
+		}
 		f, err := transmit.Forward(a, r.Id)
 		if err != nil {
 			return err
@@ -146,12 +147,17 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 	if x != nil {
 		w = &nopCloser{io.MultiWriter(x, w)}
 	}
+	var c uint8
 	for {
 		_, err := io.Copy(w, r)
 		switch err {
 		case nil:
-		case transmit.ErrCorrupted:
-			log.Println(err)
+		case transmit.ErrCorrupted, transmit.ErrUnknownId:
+			log.Println("packet skipped", err)
+			c++
+			if c == 255 {
+				return fmt.Errorf("too many errors! abort")
+			}
 		case io.EOF:
 			return ErrDone
 		default:
