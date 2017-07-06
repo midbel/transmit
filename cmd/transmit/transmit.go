@@ -105,9 +105,6 @@ func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
 func forward(a string, rs []transmit.Route) error {
 	var wg sync.WaitGroup
 	for _, r := range rs {
-		if !r.Enabled {
-			continue
-		}
 		f, err := transmit.Forward(a, r.Id)
 		if err != nil {
 			return err

@@ -40,10 +40,9 @@ const (
 )
 
 type Route struct {
-	Id      string `json:"id"`
-	Addr    string `json:"addr"`
-	Eth     string `json:"ifi"`
-	Enabled bool   `json:"enabled"`
+	Id   string `json:"id"`
+	Addr string `json:"addr"`
+	Eth  string `json:"ifi"`
 }
 
 func Subscribe(a, n string) (net.Conn, error) {
