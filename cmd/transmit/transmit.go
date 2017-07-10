@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -19,7 +20,7 @@ var ErrDone = errors.New("done")
 
 type Config struct {
 	Listen  bool             `json:"-"`
-	Verbose bool             `json:"-"`
+	Quiet   bool             `json:"-"`
 	Address string           `json:"gateway"`
 	Proxy   string           `json:"proxy"`
 	Routes  []transmit.Route `json:"routes"`
@@ -28,7 +29,7 @@ type Config struct {
 func main() {
 	config := new(Config)
 	flag.BoolVar(&config.Listen, "l", config.Listen, "listen")
-	flag.BoolVar(&config.Verbose, "v", config.Verbose, "verbose")
+	flag.BoolVar(&config.Quiet, "q", config.Quiet, "quiet")
 	flag.Parse()
 
 	f, err := os.Open(flag.Arg(0))
@@ -39,6 +40,9 @@ func main() {
 		log.Fatalln(err)
 	}
 	f.Close()
+	if config.Quiet {
+		log.SetOutput(ioutil.Discard)
+	}
 
 	switch {
 	case config.Listen:
