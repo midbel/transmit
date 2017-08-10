@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/midbel/transmit"
 )
@@ -21,6 +22,7 @@ var ErrDone = errors.New("done")
 type Config struct {
 	Listen  bool             `json:"-"`
 	Quiet   bool             `json:"-"`
+	Retry   int              `json:"-"`
 	Address string           `json:"gateway"`
 	Proxy   string           `json:"proxy"`
 	Routes  []transmit.Route `json:"routes"`
@@ -28,6 +30,7 @@ type Config struct {
 
 func main() {
 	config := new(Config)
+	flag.IntVar(&config.Retry, "r", 0, "retry")
 	flag.BoolVar(&config.Listen, "l", config.Listen, "listen")
 	flag.BoolVar(&config.Quiet, "q", config.Quiet, "quiet")
 	flag.Parse()
@@ -54,7 +57,18 @@ func main() {
 		})
 		err = distribute(config.Address, config.Proxy, config.Routes)
 	default:
-		err = forward(config.Address, config.Routes)
+		var wg sync.WaitGroup
+		for _, r := range config.Routes {
+			wg.Add(1)
+			go func(r transmit.Route) {
+				defer wg.Done()
+				if err := forward2(config.Address, r, config.Retry); err != nil {
+					log.Println(err)
+				}
+			}(r)
+		}
+		wg.Wait()
+		//err = forward(config.Address, config.Routes)
 	}
 	if err != nil {
 		log.Fatalln(err)
@@ -104,6 +118,45 @@ func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
 		return transmit.Forward(p, rs[ix].Id)
 	}
 	return nil, fmt.Errorf("no suitable route found for %s", a)
+}
+
+func forward2(a string, r transmit.Route, c int) error {
+	var (
+		i    int
+		last error
+		wait time.Duration
+	)
+	for {
+		i++
+		if c > 0 && i > c {
+			log.Printf("number of attempts reached (%d)! abort...", c)
+			return last
+		}
+		if i > 0 && i <= 10 {
+			wait = time.Second * time.Duration(i)
+		}
+		if i > 0 {
+			log.Printf("wait %s before %dth attempt", wait, i)
+			<-time.After(wait)
+		}
+		f, err := transmit.Forward(a, r.Id)
+		if err != nil {
+			log.Printf("fail to connect to remote host %s: %s", a, err)
+			continue
+		}
+		s, err := transmit.Subscribe(r.Addr, r.Eth)
+		if err != nil {
+			log.Printf("fail to subscrite to group %s: %s", r.Addr, err)
+			continue
+		}
+		log.Printf("start transmitting from %s to %s", s.LocalAddr(), f.RemoteAddr())
+		if err := relay(s, f, nil); err != nil && err != ErrDone {
+			log.Println("unexpected error while transmitting packets:", err)
+			last = err
+		}
+		log.Printf("done transmitting from %s to %s", s.LocalAddr(), f.RemoteAddr())
+	}
+	return last
 }
 
 func forward(a string, rs []transmit.Route) error {
