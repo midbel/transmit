@@ -241,9 +241,9 @@ func writeTo(w io.Writer, s uint32, id, b []byte) error {
 	r := bytes.NewReader(b)
 
 	n := r.Size() / size
-	if m := r.Size() % size; n > 0 && m != 0 {
+	/*if m := r.Size() % size; n > 0 && m != 0 {
 		n += 1
-	}
+	}*/
 	var j uint8
 	for r.Len() > 0 {
 		buf := new(bytes.Buffer)
