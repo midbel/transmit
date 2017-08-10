@@ -172,9 +172,9 @@ func (s *subscriber) Write(b []byte) (int, error) {
 	if a := adler32.Checksum(d); a != binary.BigEndian.Uint32(sum) {
 		return len(b), ErrCorrupted
 	}
-	_, err := s.Conn.Write(d)
+	w, err := s.Conn.Write(d)
 	if err == nil {
-		go log.Printf("%d bytes written to %s (%x)", len(d), s.RemoteAddr(), md5.Sum(d))
+		go log.Printf("%d (%d) bytes written to %s (%x)", w, len(d), s.RemoteAddr(), md5.Sum(d))
 	}
 	return len(b), err
 }

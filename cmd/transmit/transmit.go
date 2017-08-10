@@ -215,6 +215,7 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 		case io.EOF:
 			return ErrDone
 		default:
+			log.Printf("unexpected error while transmitting packets: %s", err)
 			if e, ok := err.(net.Error); !ok || !(e.Temporary() || e.Timeout()) {
 				return err
 			}
