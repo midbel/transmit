@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -62,7 +61,7 @@ func main() {
 			wg.Add(1)
 			go func(r transmit.Route) {
 				defer wg.Done()
-				if err := forward2(config.Address, r, config.Retry); err != nil {
+				if err := forward(config.Address, r, config.Retry); err != nil {
 					log.Println(err)
 				}
 			}(r)
@@ -92,6 +91,7 @@ func distribute(a, p string, rs []transmit.Route) error {
 		}
 		wg.Add(1)
 		go func(r, w net.Conn) {
+			defer wg.Done()
 			x, err := proxy(p, w.RemoteAddr().String(), rs)
 			if err == nil {
 				log.Printf("proxy packets from %s to %s", r.RemoteAddr(), x.RemoteAddr())
@@ -101,7 +101,6 @@ func distribute(a, p string, rs []transmit.Route) error {
 			if err := relay(r, w, x); err != nil && err != ErrDone {
 				log.Println("unexpected error while transmitting packets:", err)
 			}
-			wg.Done()
 			log.Printf("done transmitting from %s to %s", r.RemoteAddr(), w.RemoteAddr())
 		}(f, s)
 	}
@@ -120,7 +119,7 @@ func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
 	return nil, fmt.Errorf("no suitable route found for %s", a)
 }
 
-func forward2(a string, r transmit.Route, c int) error {
+func forward(a string, r transmit.Route, c int) error {
 	var (
 		i    int
 		last error
@@ -135,7 +134,7 @@ func forward2(a string, r transmit.Route, c int) error {
 		if i > 0 && i <= 10 {
 			wait = time.Second * time.Duration(i)
 		}
-		if i > 0 {
+		if i > 1 {
 			log.Printf("wait %s before %dth attempt", wait, i)
 			<-time.After(wait)
 		}
@@ -159,7 +158,7 @@ func forward2(a string, r transmit.Route, c int) error {
 	return last
 }
 
-func forward(a string, rs []transmit.Route) error {
+/*func forward(a string, rs []transmit.Route) error {
 	var wg sync.WaitGroup
 	for _, r := range rs {
 		f, err := transmit.Forward(a, r.Id)
@@ -182,7 +181,7 @@ func forward(a string, rs []transmit.Route) error {
 	}
 	wg.Wait()
 	return nil
-}
+}*/
 
 type nopCloser struct {
 	io.Writer
@@ -212,10 +211,9 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 			if c == 255 {
 				return fmt.Errorf("too many errors! abort")
 			}
-		case io.EOF:
+		case io.EOF, transmit.ErrEmpty:
 			return ErrDone
 		default:
-			log.Printf("unexpected error while transmitting packets: %s", err)
 			if e, ok := err.(net.Error); !ok || !(e.Temporary() || e.Timeout()) {
 				return err
 			}
