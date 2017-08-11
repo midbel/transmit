@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"hash/adler32"
 	"io"
 	"io/ioutil"
@@ -22,7 +21,7 @@ import (
 var ErrClosed = errors.New("closed")
 
 var (
-	ErrEmpty = errors.New("empty")
+	ErrEmpty     = errors.New("empty")
 	ErrCorrupted = errors.New("packet corrupted")
 	ErrUnknownId = errors.New("unknown packet id")
 )
