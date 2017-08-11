@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/adler32"
 	"io"
 	"io/ioutil"
@@ -21,6 +22,7 @@ import (
 var ErrClosed = errors.New("closed")
 
 var (
+	ErrEmpty = errors.New("empty")
 	ErrCorrupted = errors.New("packet corrupted")
 	ErrUnknownId = errors.New("unknown packet id")
 )
@@ -192,6 +194,9 @@ type forwarder struct {
 
 func (f *forwarder) Read(b []byte) (int, error) {
 	d, err := readFrom(f.Conn, f.id)
+	if len(d) == 0 {
+		return 0, ErrEmpty
+	}
 	go log.Printf("%d bytes received from %s", len(d), f.RemoteAddr())
 	return copy(b, d), err
 }
@@ -241,9 +246,6 @@ func writeTo(w io.Writer, s uint32, id, b []byte) error {
 	r := bytes.NewReader(b)
 
 	n := r.Size() / size
-	/*if m := r.Size() % size; n > 0 && m != 0 {
-		n += 1
-	}*/
 	var j uint8
 	for r.Len() > 0 {
 		buf := new(bytes.Buffer)
