@@ -19,17 +19,16 @@ import (
 
 var ErrDone = errors.New("done")
 
-type Config struct {
-	Listen  bool             `json:"-"`
-	Quiet   bool             `json:"-"`
-	Retry   int              `json:"-"`
-	Address string           `json:"gateway"`
-	Proxy   string           `json:"proxy"`
-	Routes  []transmit.Route `json:"routes"`
-}
-
 func main() {
-	config := new(Config)
+	config := struct {
+		Listen  bool             `json:"-"`
+		Quiet   bool             `json:"-"`
+		Retry   int              `json:"-"`
+		Address string           `json:"gateway"`
+		Proxy   string           `json:"proxy"`
+		Routes  []transmit.Route `json:"routes"`
+	}{}
+	//config := new(Config)
 	flag.IntVar(&config.Retry, "r", 0, "retry")
 	flag.BoolVar(&config.Listen, "l", config.Listen, "listen")
 	flag.BoolVar(&config.Quiet, "q", config.Quiet, "quiet")
