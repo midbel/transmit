@@ -132,20 +132,19 @@ func forward(a string, r transmit.Route, c int) error {
 			log.Printf("number of attempts reached (%d)! abort...", c)
 			return last
 		}
-		if i > 0 && i <= 10 {
-			wait = time.Second * time.Duration(i)
-		}
 		if i > 1 {
 			log.Printf("wait %s before %dth attempt", wait, i)
 			<-time.After(wait)
 		}
 		f, err := transmit.Forward(a, r.Id)
 		if err != nil {
+			wait = time.Second * time.Duration(i)
 			log.Printf("fail to connect to remote host %s: %s", a, err)
 			continue
 		}
 		s, err := transmit.Subscribe(r.Addr, r.Eth)
 		if err != nil {
+			wait = time.Second * time.Duration(i)
 			log.Printf("fail to subscrite to group %s: %s", r.Addr, err)
 			continue
 		}
@@ -155,6 +154,7 @@ func forward(a string, r transmit.Route, c int) error {
 			last = err
 		}
 		log.Printf("done transmitting from %s to %s", s.LocalAddr(), f.RemoteAddr())
+		wait = time.Second
 	}
 	return last
 }
