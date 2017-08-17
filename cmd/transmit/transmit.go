@@ -88,7 +88,9 @@ func distribute(a, p string, rs []transmit.Route) error {
 		f, s, err := r.Accept()
 		if err != nil {
 			log.Printf("connection rejected: %s", err)
-			continue
+
+			wg.Wait()
+			return err
 		}
 		wg.Add(1)
 		go func(r, w net.Conn) {
@@ -105,9 +107,6 @@ func distribute(a, p string, rs []transmit.Route) error {
 			log.Printf("done transmitting from %s to %s", r.RemoteAddr(), w.RemoteAddr())
 		}(f, s)
 	}
-	wg.Wait()
-
-	return nil
 }
 
 func proxy(p, a string, rs []transmit.Route) (net.Conn, error) {
@@ -156,33 +155,7 @@ func forward(a string, r transmit.Route, c int) error {
 		log.Printf("done transmitting from %s to %s", s.LocalAddr(), f.RemoteAddr())
 		wait = time.Second
 	}
-	return last
 }
-
-/*func forward(a string, rs []transmit.Route) error {
-	var wg sync.WaitGroup
-	for _, r := range rs {
-		f, err := transmit.Forward(a, r.Id)
-		if err != nil {
-			return err
-		}
-		s, err := transmit.Subscribe(r.Addr, r.Eth)
-		if err != nil {
-			return err
-		}
-		wg.Add(1)
-		go func(r, w net.Conn) {
-			log.Printf("start transmitting from %s to %s", r.LocalAddr(), w.RemoteAddr())
-			if err := relay(r, w, nil); err != nil && err != ErrDone {
-				log.Println("unexpected error while transmitting packets:", err)
-			}
-			wg.Done()
-			log.Printf("done transmitting from %s to %s", r.LocalAddr(), w.RemoteAddr())
-		}(s, f)
-	}
-	wg.Wait()
-	return nil
-}*/
 
 type nopCloser struct {
 	io.Writer
@@ -220,5 +193,4 @@ func relay(r io.ReadCloser, w, x io.WriteCloser) error {
 			}
 		}
 	}
-	return nil
 }
