@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
