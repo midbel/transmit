@@ -131,6 +131,9 @@ func forward(a string, r transmit.Route, c int) error {
 			return last
 		}
 		if i > 1 {
+			if delta := time.Second * 10; wait > delta {
+				wait = delta
+			}
 			log.Printf("wait %s before %dth attempt", wait, i)
 			<-time.After(wait)
 		}
