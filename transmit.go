@@ -93,6 +93,7 @@ func Forward(a, s string) (net.Conn, error) {
 type Router struct {
 	net.Listener
 
+	mu sync.Mutex
 	routes map[string]*pool
 }
 
@@ -108,7 +109,9 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	} else {
 		id = id[:uuid.Size]
 	}
+	r.mu.Lock()
 	p, ok := r.routes[string(id)]
+	r.mu.Unlock()
 	if !ok {
 		c.Close()
 		return nil, nil, ErrUnknownId
