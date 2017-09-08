@@ -107,6 +107,7 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 		c.SetKeepAlive(true)
 		c.SetKeepAlivePeriod(time.Minute)
 	}
+	c.SetReadDeadline(time.Now().Add(time.Hour * 3))
 	id := make([]byte, Size+uuid.Size)
 	if _, err := io.ReadFull(c, id); err != nil {
 		c.Close()
