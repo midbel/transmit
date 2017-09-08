@@ -14,6 +14,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/midbel/uuid"
 )
@@ -101,6 +102,10 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	c, err := r.Listener.Accept()
 	if err != nil {
 		return nil, nil, err
+	}
+	if c, ok := c.(*net.TCPConn); ok {
+		c.SetKeepAlive(true)
+		c.SetKeepAlivePeriod(time.Minute)
 	}
 	id := make([]byte, Size+uuid.Size)
 	if _, err := io.ReadFull(c, id); err != nil {
