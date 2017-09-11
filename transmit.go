@@ -107,7 +107,6 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 		c.SetKeepAlive(true)
 		c.SetKeepAlivePeriod(time.Minute)
 	}
-	c.SetReadDeadline(time.Now().Add(time.Hour * 3))
 	id := make([]byte, Size+uuid.Size)
 	if _, err := io.ReadFull(c, id); err != nil {
 		c.Close()
@@ -125,6 +124,7 @@ func (r *Router) Accept() (net.Conn, net.Conn, error) {
 	io.CopyN(ioutil.Discard, c, Padding)
 	w, err := p.Acquire()
 	if err != nil {
+		c.Close()
 		return nil, nil, err
 	}
 	return &forwarder{Conn: c, id: id}, w, nil
