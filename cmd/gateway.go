@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -36,7 +38,9 @@ func runGateway(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer nat.Close()
+	if _, _, err := net.SplitHostPort(c.Mon); err == nil {
+		go http.ListenAndServe(c.Mon, nat)
+	}
 	return nat.Accept()
 }
 
@@ -87,6 +91,18 @@ type Packet struct {
 	Payload []byte
 }
 
+type counter struct {
+	Size  uint64    `json:"size"`
+	Count uint64    `json:"count"`
+	When  time.Time `json:"dtstamp"`
+}
+
+func (c *counter) Update(s int) {
+	c.Count++
+	c.When = time.Now()
+	c.Size += uint64(s)
+}
+
 type Nat struct {
 	net.Listener
 
@@ -94,6 +110,20 @@ type Nat struct {
 	proxies map[uint16]net.Conn
 	groups  map[uint16]net.Conn
 	writers map[addr]io.Writer
+
+	cu       sync.RWMutex
+	counters map[addr]*counter
+}
+
+func (n *Nat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	n.cu.RLock()
+	defer n.cu.RUnlock()
+
+	cs := make([]*counter, 0, len(n.counters))
+	for _, c := range n.counters {
+		cs = append(cs, c)
+	}
+	json.NewEncoder(w).Encode(cs)
 }
 
 func (n *Nat) Close() error {
@@ -110,6 +140,7 @@ func (n *Nat) Close() error {
 }
 
 func (n *Nat) Accept() error {
+	defer n.Listener.Close()
 	for {
 		c, err := n.Listener.Accept()
 		if err != nil {
@@ -141,7 +172,10 @@ func (n *Nat) forward(a net.Addr, p *Packet) error {
 
 	n.mu.RLock()
 	if w, ok := n.writers[k]; ok {
-		_, err := w.Write(p.Payload)
+		z, err := w.Write(p.Payload)
+		n.cu.Lock()
+		n.counters[k].Update(z)
+		n.cu.Unlock()
 		return err
 	}
 	var ws []io.Writer
@@ -166,7 +200,13 @@ func (n *Nat) forward(a net.Addr, p *Packet) error {
 	n.writers[k] = w
 	n.mu.Unlock()
 
-	_, err := w.Write(p.Payload)
+	n.cu.Lock()
+	defer n.cu.Unlock()
+	n.counters[k] = new(counter)
+
+	z, err := w.Write(p.Payload)
+	n.counters[k].Update(z)
+
 	return err
 }
 
