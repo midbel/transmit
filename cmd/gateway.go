@@ -92,6 +92,7 @@ type Packet struct {
 }
 
 type counter struct {
+	Addr  addr      `json:"addr"`
 	Size  uint64    `json:"size"`
 	Count uint64    `json:"count"`
 	When  time.Time `json:"dtstamp"`
@@ -202,7 +203,7 @@ func (n *Nat) forward(a net.Addr, p *Packet) error {
 
 	n.cu.Lock()
 	defer n.cu.Unlock()
-	n.counters[k] = new(counter)
+	n.counters[k] = &counter{Addr: k}
 
 	z, err := w.Write(p.Payload)
 	n.counters[k].Update(z)

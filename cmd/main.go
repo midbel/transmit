@@ -18,12 +18,12 @@ const BufferSize = 4096 * 4
 
 var commands = []*cli.Command{
 	{
-		Usage: "relay [-i] [-r] <group> <gateway>",
+		Usage: "relay <config.toml>",
 		Short: "subscribe to multicast group and send packets to a transmit gateway",
 		Run:   runRelay,
 	},
 	{
-		Usage: "gateway <gateway> <group>",
+		Usage: "gateway <config.toml>",
 		Short: "forward packets received from transmit relay to groups",
 		Run:   runGateway,
 	},
