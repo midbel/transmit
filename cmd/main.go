@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/midbel/rustine/cli"
+	"github.com/midbel/cli"
 )
 
 const BufferSize = 4096 * 4

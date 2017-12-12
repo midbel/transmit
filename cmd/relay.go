@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/midbel/rustine/cli"
-	"github.com/midbel/rustine/cli/toml"
+	"github.com/midbel/cli"
+	"github.com/midbel/toml"
 )
 
 func runRelay(cmd *cli.Command, args []string) error {
