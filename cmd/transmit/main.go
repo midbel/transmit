@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/binary"
 	"errors"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -28,13 +26,6 @@ Use {{.Name}} [command] -h for more information about its usage.
 
 var ErrDone = errors.New("done")
 
-type Packet struct {
-	Port     uint16
-	Sequence uint32
-	Length   uint32
-	Payload  []byte
-}
-
 func main() {
 	commands := []*cli.Command{
 		relay,
@@ -58,17 +49,4 @@ func main() {
 	if err := cli.Run(commands, usage, nil); err != nil {
 		log.Fatalln(err)
 	}
-}
-
-func DecodePacket(r io.Reader) (*Packet, error) {
-	p := new(Packet)
-	binary.Read(r, binary.BigEndian, &p.Port)
-	binary.Read(r, binary.BigEndian, &p.Sequence)
-	binary.Read(r, binary.BigEndian, &p.Length)
-
-	p.Payload = make([]byte, int(p.Length))
-	if _, err := io.ReadFull(r, p.Payload); err != nil {
-		return nil, err
-	}
-	return p, nil
 }

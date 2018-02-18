@@ -1,20 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
-	"hash/adler32"
 	"io"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/midbel/transmit"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
 )
@@ -73,13 +69,13 @@ func (r relayer) Transmit(e time.Duration, c *tls.Config) error {
 }
 
 func (r relayer) copy(c *tls.Config) error {
-	w, err := Forward(r.Addr, r.Port, c)
+	w, err := transmit.Forward(r.Addr, r.Port, c)
 	if err != nil {
 		return fmt.Errorf("fail to connect to %s: %s", r.Addr, err)
 	}
 	defer w.Close()
 
-	g, err := Subscribe(r.Group)
+	g, err := transmit.Subscribe(r.Group)
 	if err != nil {
 		return fmt.Errorf("fail to subscribe to %s: %s", r.Group, err)
 	}
@@ -129,54 +125,4 @@ func runRelay(cmd *cli.Command, args []string) error {
 	}
 	wg.Wait()
 	return nil
-}
-
-func Subscribe(g string) (net.Conn, error) {
-	addr, err := net.ResolveUDPAddr("udp", g)
-	if err != nil {
-		return nil, err
-	}
-	return net.ListenMulticastUDP("udp", nil, addr)
-}
-
-type forwarder struct {
-	net.Conn
-
-	port uint16
-	curr uint32
-}
-
-func Forward(a string, p int, c *tls.Config) (net.Conn, error) {
-	var conn net.Conn
-
-	addr, err := net.ResolveTCPAddr("tcp", a)
-	if err != nil {
-		return nil, err
-	}
-	if conn, err = net.DialTCP("tcp", nil, addr); err != nil {
-		return nil, err
-	}
-	if c != nil {
-		conn = tls.Client(conn, c)
-	}
-	if p <= 0 {
-		p = addr.Port
-	}
-	return &forwarder{Conn: conn, port: uint16(p)}, nil
-}
-
-func (f *forwarder) Write(bs []byte) (int, error) {
-	defer atomic.AddUint32(&f.curr, 1)
-
-	w := new(bytes.Buffer)
-	binary.Write(w, binary.BigEndian, f.port)
-	binary.Write(w, binary.BigEndian, f.curr)
-	binary.Write(w, binary.BigEndian, uint32(len(bs)))
-	w.Write(bs)
-	binary.Write(w, binary.BigEndian, adler32.Checksum(w.Bytes()))
-
-	if n, err := io.Copy(f.Conn, w); err != nil {
-		return int(n), err
-	}
-	return len(bs), nil
 }
