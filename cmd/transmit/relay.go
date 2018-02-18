@@ -6,13 +6,12 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/midbel/transmit"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
+	"github.com/midbel/transmit"
 )
 
 var relay = &cli.Command{
@@ -21,31 +20,6 @@ var relay = &cli.Command{
 	Short: "",
 	Alias: []string{"send"},
 	Desc:  ``,
-}
-
-type cert struct {
-	Name string `toml:"server"`
-	Path string `toml:"certdir"`
-
-	config *tls.Config
-}
-
-func (c cert) Client() *tls.Config {
-	if c.config != nil {
-		return c.config
-	}
-	p := filepath.Join(c.Path, "relay.pem")
-	k := filepath.Join(c.Path, "relay.key")
-
-	cert, err := tls.LoadX509KeyPair(p, k)
-	if err != nil {
-		return nil
-	}
-	c.config = &tls.Config{
-		ServerName:   c.Name,
-		Certificates: []tls.Certificate{cert},
-	}
-	return c.config
 }
 
 type relayer struct {

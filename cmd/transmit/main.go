@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"crypto/tls"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,8 +23,6 @@ The commands are:
 
 Use {{.Name}} [command] -h for more information about its usage.
 `
-
-var ErrDone = errors.New("done")
 
 func main() {
 	commands := []*cli.Command{
@@ -49,4 +47,51 @@ func main() {
 	if err := cli.Run(commands, usage, nil); err != nil {
 		log.Fatalln(err)
 	}
+}
+
+type cert struct {
+	Policy string `toml:"policy"`
+	Name   string `toml:"server"`
+	Path   string `toml:"certdir"`
+
+	config *tls.Config
+}
+
+func (c cert) Server() *tls.Config {
+	cert := c.Client()
+	if cert == nil {
+		return cert
+	}
+
+	switch c.Policy {
+	case "request":
+		cert.ClientAuth = tls.RequestClientCert
+	case "require":
+		cert.ClientAuth = tls.RequireAnyClientCert
+	case "verify":
+		cert.ClientAuth = tls.VerifyClientCertIfGiven
+	case "none":
+		cert.ClientAuth = tls.NoClientCert
+	default:
+		cert.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cert
+}
+
+func (c cert) Client() *tls.Config {
+	if c.config != nil {
+		return c.config
+	}
+	p := filepath.Join(c.Path, "transmit.pem")
+	k := filepath.Join(c.Path, "transmit.key")
+
+	cert, err := tls.LoadX509KeyPair(p, k)
+	if err != nil {
+		return nil
+	}
+	c.config = &tls.Config{
+		ServerName:   c.Name,
+		Certificates: []tls.Certificate{cert},
+	}
+	return c.config
 }
