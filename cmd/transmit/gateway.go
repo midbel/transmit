@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"crypto/tls"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
+	"github.com/midbel/transmit"
 )
 
 var gateway = &cli.Command{
@@ -38,9 +41,25 @@ func runGateway(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	var wg sync.WaitGroup
 	for c := range queue {
-		_ = c
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer func() {
+				c.Close()
+				wg.Done()
+			}()
+			r := bufio.NewReader(c)
+			for {
+				p, err := transmit.DecodePacket(r)
+				if err != nil {
+					return
+				}
+				_ = p
+			}
+		}(c)
 	}
+	wg.Wait()
 	return nil
 }
 
