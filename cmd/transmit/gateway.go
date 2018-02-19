@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
 	"net"
 	"os"
@@ -9,8 +8,11 @@ import (
 
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
-	"github.com/midbel/transmit"
 )
+
+type group struct {
+
+}
 
 var gateway = &cli.Command{
 	Run:   runGateway,
@@ -43,21 +45,7 @@ func runGateway(cmd *cli.Command, args []string) error {
 	}
 	var wg sync.WaitGroup
 	for c := range queue {
-		wg.Add(1)
-		go func(c net.Conn) {
-			defer func() {
-				c.Close()
-				wg.Done()
-			}()
-			r := bufio.NewReader(c)
-			for {
-				p, err := transmit.DecodePacket(r)
-				if err != nil {
-					return
-				}
-				_ = p
-			}
-		}(c)
+		_ = c
 	}
 	wg.Wait()
 	return nil
