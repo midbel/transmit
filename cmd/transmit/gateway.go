@@ -10,8 +10,46 @@ import (
 	"github.com/midbel/toml"
 )
 
-type group struct {
+type Proxy struct {
+	net.Addr
+	conn net.Conn
+}
 
+func (p *Proxy) Set(v string) error {
+	a, err := net.ResolveTCPAddr("tcp", v)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		p = new(Proxy)
+	}
+	p.Addr = a
+	return nil
+}
+
+type Group struct {
+	net.Addr
+	conn net.Conn
+}
+
+func (g *Group) Set(v string) error {
+	a, err := net.ResolveUDPAddr("udp", v)
+	if err != nil {
+		return err
+	}
+	if g == nil {
+		g = new(Group)
+	}
+	g.Addr = a
+	return nil
+}
+
+type dispatcher struct {
+	Port uint16 `toml:"port"`
+	// Group *Group `toml:"group"`
+	Group string `toml:"group"`
+	// Proxy *Proxy `toml:"proxy"`
+	Proxy string `toml:"proxy"`
 }
 
 var gateway = &cli.Command{
@@ -33,8 +71,9 @@ func runGateway(cmd *cli.Command, args []string) error {
 	defer f.Close()
 
 	c := struct {
-		Addr string `toml:"address"`
-		Cert cert   `toml:"certificate"`
+		Addr        string       `toml:"address"`
+		Cert        cert         `toml:"certificate"`
+		Dispatchers []dispatcher `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
