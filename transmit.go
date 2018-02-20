@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"hash/adler32"
 	"io"
 	"net"
 	"sync/atomic"
 )
+
+var ErrCorrupted = errors.New("corrupted")
 
 type Packet struct {
 	Port     uint16
@@ -20,6 +23,9 @@ type Packet struct {
 
 func DecodePacket(r io.Reader) (*Packet, error) {
 	p := new(Packet)
+	w := new(bytes.Buffer)
+
+	r = io.TeeReader(r, w)
 	binary.Read(r, binary.BigEndian, &p.Port)
 	binary.Read(r, binary.BigEndian, &p.Sequence)
 	binary.Read(r, binary.BigEndian, &p.Length)
@@ -28,7 +34,25 @@ func DecodePacket(r io.Reader) (*Packet, error) {
 	if _, err := io.ReadFull(r, p.Payload); err != nil {
 		return nil, err
 	}
+	sum := adler32.Checksum(w.Bytes())
+	binary.Read(r, binary.BigEndian, &p.Sum)
+	if sum != p.Sum {
+		return nil, ErrCorrupted
+	}
 	return p, nil
+}
+
+func EncodePacket(p *Packet) []byte {
+	w := new(bytes.Buffer)
+
+	binary.Write(w, binary.BigEndian, p.Port)
+	binary.Write(w, binary.BigEndian, p.Sequence)
+	binary.Write(w, binary.BigEndian, uint32(len(p.Payload)))
+	w.Write(p.Payload)
+
+	binary.Write(w, binary.BigEndian, adler32.Checksum(w.Bytes()))
+
+	return w.Bytes()
 }
 
 func Subscribe(g string) (net.Conn, error) {
@@ -68,15 +92,13 @@ func Forward(a string, p int, c *tls.Config) (net.Conn, error) {
 func (f *forwarder) Write(bs []byte) (int, error) {
 	defer atomic.AddUint32(&f.curr, 1)
 
-	w := new(bytes.Buffer)
-	binary.Write(w, binary.BigEndian, f.port)
-	binary.Write(w, binary.BigEndian, f.curr)
-	binary.Write(w, binary.BigEndian, uint32(len(bs)))
-	w.Write(bs)
-	binary.Write(w, binary.BigEndian, adler32.Checksum(w.Bytes()))
-
-	if n, err := io.Copy(f.Conn, w); err != nil {
-		return int(n), err
+	p := &Packet{
+		Port:     f.port,
+		Sequence: f.curr,
+		Payload:  bs,
+	}
+	if n, err := f.Conn.Write(EncodePacket(p)); err != nil {
+		return n, err
 	}
 	return len(bs), nil
 }
