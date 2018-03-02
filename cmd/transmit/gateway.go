@@ -34,7 +34,6 @@ func runGateway(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr        string       `toml:"address"`
-		Cert        cert         `toml:"certificate"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
@@ -49,9 +48,7 @@ func runGateway(cmd *cli.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if c, ok := c.(*net.TCPConn); ok {
-			c.SetKeepAlive(true)
-		}
+		_ = c
 	}
 
 	return nil
