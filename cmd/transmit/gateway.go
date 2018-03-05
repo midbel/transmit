@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
+	"io"
+	"log"
 	"net"
 	"os"
 
@@ -33,23 +36,51 @@ func runGateway(cmd *cli.Command, args []string) error {
 	defer f.Close()
 
 	c := struct {
-		Addr        string       `toml:"address"`
+		Addr string `toml:"address"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
-	s, err := net.Listen("tcp", c.Addr)
+	r, err := listen(c.Addr)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
-	for {
-		c, err := s.Accept()
-		if err != nil {
-			return err
-		}
-		_ = c
-	}
+	w := hex.Dumper(os.Stdout)
+	_, err = io.Copy(w, r)
 
 	return nil
+}
+
+func listen(a string) (io.Reader, error) {
+	s, err := net.Listen("tcp", a)
+	if err != nil {
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer func() {
+			s.Close()
+			pr.Close()
+			pw.Close()
+		}()
+		for {
+			c, err := s.Accept()
+			if err != nil {
+				return
+			}
+			if c, ok := c.(*net.TCPConn); ok {
+				c.SetKeepAlive(true)
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				log.Printf("start receiving packets from %s", c.RemoteAddr())
+				_, err := io.Copy(pw, c)
+				if err != nil {
+					log.Printf("error when receiving packets from %s: %s", c.RemoteAddr(), err)
+				}
+				log.Printf("done receiving packets from %s", c.RemoteAddr())
+			}(c)
+		}
+	}()
+	return pr, nil
 }
