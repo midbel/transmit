@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -72,6 +73,19 @@ type pool struct {
 	cs []*conn
 }
 
+func (p *pool) Close() error {
+	var err error
+	for _, c := range p.cs {
+		if c.inner == nil {
+			continue
+		}
+		if e := c.inner.Close(); e != nil {
+			err = e
+		}
+	}
+	return err
+}
+
 func (p *pool) Write(bs []byte) (int, error) {
 	r := bufio.NewReader(bytes.NewReader(bs))
 	k, err := transmit.DecodePacket(r)
@@ -97,7 +111,10 @@ func runGateway(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr   string  `toml:"address"`
+		Proto  string  `toml:"proto"`
 		Debug  bool    `toml:"dump"`
+		Buffer int     `toml:"buffer"`
+		Cert   cert    `toml:"certificate"`
 		Routes []route `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
@@ -107,12 +124,17 @@ func runGateway(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := listen(c.Addr)
+
+	r, err := listen(c.Addr, c.Cert.Server())
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(w, r)
-
+	if c.Buffer > 0 {
+		b := make([]byte, c.Buffer)
+		_, err = io.CopyBuffer(w, r, b)
+	} else {
+		_, err = io.Copy(w, r)
+	}
 	return nil
 }
 
@@ -144,10 +166,13 @@ func prepare(rs []route, d bool) (io.Writer, error) {
 	return w, nil
 }
 
-func listen(a string) (io.Reader, error) {
+func listen(a string, c *tls.Config) (io.Reader, error) {
 	s, err := net.Listen("tcp", a)
 	if err != nil {
 		return nil, err
+	}
+	if c != nil {
+		s = tls.NewListener(s, c)
 	}
 	pr, pw := io.Pipe()
 	go func() {
