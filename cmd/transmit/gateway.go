@@ -1,9 +1,10 @@
 package main
 
 import (
-	"crypto/tls"
+	"bufio"
 	"encoding/hex"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -27,6 +28,7 @@ type route struct {
 }
 
 func runGateway(cmd *cli.Command, args []string) error {
+	dump := cmd.Flag.Bool("x", false, "hexdump")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -38,17 +40,14 @@ func runGateway(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr   string  `toml:"address"`
-		Proto  string  `toml:"proto"`
-		Debug  bool    `toml:"dump"`
 		Buffer int     `toml:"buffer"`
-		Cert   cert    `toml:"certificate"`
 		Routes []route `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
 
-	r, err := listen(c.Addr, c.Cert.Server())
+	r, err := listen(c.Addr)
 	if err != nil {
 		return err
 	}
@@ -56,18 +55,18 @@ func runGateway(cmd *cli.Command, args []string) error {
 	if c.Buffer > 0 {
 		b = make([]byte, c.Buffer)
 	}
-	w := hex.Dumper(os.Stdout)
-	_, err = io.CopyBuffer(w, r, b)
-	return nil
+
+	if *dump {
+		r = io.TeeReader(r, hex.Dumper(os.Stdout))
+	}
+	_, err = io.CopyBuffer(ioutil.Discard, r, b)
+	return err
 }
 
-func listen(a string, c *tls.Config) (io.Reader, error) {
+func listen(a string) (io.Reader, error) {
 	s, err := net.Listen("tcp", a)
 	if err != nil {
 		return nil, err
-	}
-	if c != nil {
-		s = tls.NewListener(s, c)
 	}
 	pr, pw := io.Pipe()
 	go func() {
@@ -95,5 +94,5 @@ func listen(a string, c *tls.Config) (io.Reader, error) {
 			}(c)
 		}
 	}()
-	return pr, nil
+	return bufio.NewReader(pr), nil
 }
