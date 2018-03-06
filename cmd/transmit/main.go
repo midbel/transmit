@@ -52,7 +52,7 @@ func main() {
 type cert struct {
 	Policy string `toml:"policy"`
 	Name   string `toml:"server"`
-	Path   string `toml:"certdir"`
+	Path   string `toml:"location"`
 
 	config *tls.Config
 }
