@@ -7,10 +7,27 @@ import (
 	"os"
 	"sync"
 
+	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
 	"github.com/midbel/transmit"
 )
+
+type bandwidth struct {
+	Rate float64 `toml:"rate"`
+	Cap  int64   `toml:"capacity"`
+}
+
+func (b bandwidth) Writer(w io.Writer) io.Writer {
+	if b.Rate == 0 {
+		return w
+	}
+	if b.Cap == 0 {
+		b.Cap = int64(b.Rate) * 4
+	}
+	k := ratelimit.NewBucketWithRate(b.Rate, b.Cap)
+	return ratelimit.Writer(w, k)
+}
 
 type group struct {
 	Port uint16 `toml:"port"`
@@ -33,18 +50,21 @@ func runRelay(cmd *cli.Command, args []string) error {
 	defer f.Close()
 
 	c := struct {
-		Addr   string  `toml:"address"`
-		Cert   cert    `toml:"certificate"`
-		Groups []group `toml:"route"`
+		Addr   string    `toml:"address"`
+		Usage  bandwidth `toml:"bandwith"`
+		Cert   cert      `toml:"certificate"`
+		Groups []group   `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
-	w, err := transmit.Proxy(c.Addr, c.Cert.Client())
+	x, err := transmit.Proxy(c.Addr, c.Cert.Client())
 	if err != nil {
 		return err
 	}
-	defer w.Close()
+	defer x.Close()
+
+	w := c.Usage.Writer(x)
 
 	var wg sync.WaitGroup
 	for i := range c.Groups {
