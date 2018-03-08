@@ -22,6 +22,7 @@ func (b bandwidth) Writer(w io.Writer) io.Writer {
 	if b.Rate == 0 {
 		return w
 	}
+	b.Rate *= 1024*1024
 	if b.Cap == 0 {
 		b.Cap = int64(b.Rate) * 4
 	}
@@ -33,6 +34,7 @@ type group struct {
 	Port uint16 `toml:"port"`
 	Addr string `toml:"group"`
 	Eth  string `toml:"interface"`
+	Buffer uint16 `toml:"buffer"`
 }
 
 func (g *group) Dial() (net.Conn, error) {
@@ -74,10 +76,14 @@ func runRelay(cmd *cli.Command, args []string) error {
 			continue
 		}
 		wg.Add(1)
-		go func(c net.Conn) {
+		go func(c net.Conn, s int) {
 			defer wg.Done()
-			io.Copy(w, c)
-		}(r)
+			var b []byte
+			if s > 0 {
+				b = make([]byte, s)
+			}
+			io.CopyBuffer(w, c, b)
+		}(r, int(c.Groups[i].Buffer))
 	}
 	wg.Wait()
 	return nil
