@@ -15,6 +15,7 @@ type route struct {
 	Port  uint16 `toml:"port"`
 	Addr  string `toml:"address"`
 	Proto string `toml:"proto"`
+	Cert  cert   `toml:"certificate"`
 }
 
 func (r *route) Dial() (net.Conn, error) {
@@ -22,7 +23,7 @@ func (r *route) Dial() (net.Conn, error) {
 	case "", "udp":
 		return net.Dial("udp", r.Addr)
 	case "tcp":
-		return transmit.Proxy(r.Addr)
+		return transmit.Proxy(r.Addr, r.Cert.Client())
 	default:
 		return nil, fmt.Errorf("unsupported protocol %s", r.Proto)
 	}
@@ -40,6 +41,7 @@ func runGateway(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr   string  `toml:"address"`
+		Cert   cert    `toml:"certificate"`
 		Routes []route `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
@@ -55,5 +57,5 @@ func runGateway(cmd *cli.Command, args []string) error {
 		defer r.Close()
 		n.Register(c.Routes[i].Port, r)
 	}
-	return transmit.Listen(c.Addr, n)
+	return transmit.Listen(c.Addr, c.Cert.Server(), n)
 }

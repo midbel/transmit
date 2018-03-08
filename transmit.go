@@ -3,6 +3,7 @@ package transmit
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"hash/adler32"
@@ -69,10 +70,13 @@ func DecodePacket(r io.Reader) (*Packet, error) {
 	return p, nil
 }
 
-func Listen(a string, t Transmitter) error {
+func Listen(a string, c *tls.Config, mux *PortMux) error {
 	s, err := net.Listen("tcp", a)
 	if err != nil {
 		return err
+	}
+	if c != nil {
+		s = tls.NewListener(s, c)
 	}
 	for {
 		c, err := s.Accept()
@@ -82,21 +86,7 @@ func Listen(a string, t Transmitter) error {
 		if c, ok := c.(*net.TCPConn); ok {
 			c.SetKeepAlive(true)
 		}
-		go func(c net.Conn) {
-			defer c.Close()
-			_ = bufio.NewReader(c)
-			for {
-				p, err := DecodePacket(c)
-				switch err {
-				case nil:
-					t.Transmit(p)
-				case ErrCorrupted:
-					continue
-				default:
-					return
-				}
-			}
-		}(c)
+		go mux.Handle(c)
 	}
 	return nil
 }
@@ -108,6 +98,19 @@ type PortMux struct {
 
 func NewPortMux() *PortMux {
 	return &PortMux{writers: make(map[uint16][]io.Writer)}
+}
+
+func (p *PortMux) Handle(c net.Conn) {
+	defer c.Close()
+
+	r := bufio.NewReader(c)
+	for {
+		k, err := DecodePacket(r)
+		if err != nil {
+			return
+		}
+		p.Transmit(k)
+	}
 }
 
 func (p *PortMux) Register(d uint16, w io.Writer) {
@@ -137,12 +140,15 @@ func (p *PortMux) Transmit(k *Packet) error {
 	return nil
 }
 
-func Proxy(a string) (net.Conn, error) {
-	c, err := net.Dial("tcp", a)
+func Proxy(a string, c *tls.Config) (net.Conn, error) {
+	s, err := net.Dial("tcp", a)
 	if err != nil {
 		return nil, err
 	}
-	return &proxy{Conn: c, writer: c, addr: a}, nil
+	if c != nil {
+		s = tls.Client(s, c)
+	}
+	return &proxy{Conn: s, writer: s, cert: c, addr: a}, nil
 }
 
 func Subscribe(d, i string, p uint16) (net.Conn, error) {
@@ -165,6 +171,7 @@ type proxy struct {
 	net.Conn
 
 	addr string
+	cert *tls.Config
 
 	mu     sync.Mutex
 	writer io.Writer

@@ -34,12 +34,13 @@ func runRelay(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr   string  `toml:"address"`
+		Cert   cert    `toml:"certificate"`
 		Groups []group `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
-	w, err := transmit.Proxy(c.Addr)
+	w, err := transmit.Proxy(c.Addr, c.Cert.Client())
 	if err != nil {
 		return err
 	}
