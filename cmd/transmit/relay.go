@@ -60,6 +60,8 @@ func runRelay(cmd *cli.Command, args []string) error {
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
+	transmit.Logger.SetOutput(os.Stderr)
+
 	x, err := transmit.Proxy(c.Addr, c.Cert.Client())
 	if err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 	"hash/adler32"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,8 @@ var (
 	ErrInvalid   = errors.New("invalid payload")
 )
 
+var Logger *log.Logger
+
 type Transmitter interface {
 	Transmit(*Packet) error
 }
@@ -30,6 +33,10 @@ type Packet struct {
 	Length   uint32
 	Payload  []byte
 	Sum      uint32
+}
+
+func init() {
+	Logger = log.New(ioutil.Discard, "", log.LstdFlags | log.LUTC)
 }
 
 func EncodePacket(p *Packet) ([]byte, error) {
@@ -84,7 +91,8 @@ func Listen(a string, c *tls.Config, mux *PortMux) error {
 	for {
 		c, err := s.Accept()
 		if err != nil {
-			return err
+			Logger.Printf("error with connection from %s: %s", c.RemoteAddr(), err)
+			continue
 		}
 		if c, ok := c.(*net.TCPConn); ok {
 			c.SetKeepAlive(true)
@@ -185,6 +193,9 @@ func (p *proxy) Write(bs []byte) (int, error) {
 	defer p.mu.Unlock()
 
 	_, err := p.writer.Write(bs)
+	if err != nil {
+		Logger.Printf("fail to write %d bytes to %s: %s", len(bs), p.addr, err)
+	}
 	if e, ok := err.(net.Error); ok && !e.Temporary() {
 		p.Conn.Close()
 		p.writer, p.Conn = ioutil.Discard, nil
