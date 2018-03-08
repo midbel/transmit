@@ -63,13 +63,13 @@ func DecodePacket(r io.Reader) (*Packet, error) {
 	if _, err := io.ReadFull(r, p.Payload); err != nil {
 		return nil, ErrInvalid
 	}
-  bs := b.Bytes()
+	bs := b.Bytes()
 	if err := binary.Read(r, binary.BigEndian, &p.Sum); err != nil {
 		return nil, err
 	}
-  if p.Sum != adler32.Checksum(bs) {
-    return nil, ErrCorrupted
-  }
+	if p.Sum != adler32.Checksum(bs) {
+		return nil, ErrCorrupted
+	}
 	return p, nil
 }
 

@@ -22,7 +22,7 @@ func (b bandwidth) Writer(w io.Writer) io.Writer {
 	if b.Rate == 0 {
 		return w
 	}
-	b.Rate *= 1024*1024
+	b.Rate *= 1024 * 1024
 	if b.Cap == 0 {
 		b.Cap = int64(b.Rate) * 4
 	}
@@ -31,9 +31,9 @@ func (b bandwidth) Writer(w io.Writer) io.Writer {
 }
 
 type group struct {
-	Port uint16 `toml:"port"`
-	Addr string `toml:"group"`
-	Eth  string `toml:"interface"`
+	Port   uint16 `toml:"port"`
+	Addr   string `toml:"group"`
+	Eth    string `toml:"interface"`
 	Buffer uint16 `toml:"buffer"`
 }
 
