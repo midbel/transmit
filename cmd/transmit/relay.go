@@ -53,7 +53,7 @@ func runRelay(cmd *cli.Command, args []string) error {
 
 	c := struct {
 		Addr   string    `toml:"address"`
-		Usage  bandwidth `toml:"bandwith"`
+		Usage  bandwidth `toml:"bandwidth"`
 		Cert   cert      `toml:"certificate"`
 		Groups []group   `toml:"route"`
 	}{}
