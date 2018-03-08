@@ -1,24 +1,25 @@
 package main
 
 import (
+	"io"
+	"log"
+	"net"
 	"os"
+	"sync"
 
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
+	"github.com/midbel/transmit"
 )
 
-var relay = &cli.Command{
-	Run:   runRelay,
-	Usage: "relay <relay.toml>",
-	Short: "",
-	Alias: []string{"send"},
-	Desc:  ``,
+type group struct {
+	Port uint16 `toml:"port"`
+	Addr string `toml:"group"`
+	Eth  string `toml:"interface"`
 }
 
-type relayer struct {
-	Addr  string `toml:"address"`
-	Group string `toml:"group"`
-	Port  int    `toml:"port"`
+func (g *group) Dial() (net.Conn, error) {
+	return transmit.Subscribe(g.Addr, g.Eth, g.Port)
 }
 
 func runRelay(cmd *cli.Command, args []string) error {
@@ -32,11 +33,31 @@ func runRelay(cmd *cli.Command, args []string) error {
 	defer f.Close()
 
 	c := struct {
-		Addr     string    `toml:"address"`
-		Relayers []relayer `toml:"route"`
+		Addr   string  `toml:"address"`
+		Groups []group `toml:"route"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
+	w, err := transmit.Proxy(c.Addr)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+
+	var wg sync.WaitGroup
+	for i := range c.Groups {
+		r, err := c.Groups[i].Dial()
+		if err != nil {
+			log.Println("fail to subscribe to %s: %s", c.Groups[i].Addr, err)
+			continue
+		}
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			io.Copy(w, c)
+		}(r)
+	}
+	wg.Wait()
 	return nil
 }

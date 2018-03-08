@@ -24,12 +24,39 @@ The commands are:
 Use {{.Name}} [command] -h for more information about its usage.
 `
 
+var commands = []*cli.Command{
+	{
+		Run:   runSimulate,
+		Usage: "simulate [-q] [-r] [-e] [-c] [-s] <group...>",
+		Short: "generate random packets and write them to a multicast group",
+		Alias: []string{"generate", "sim", "gen"},
+		Desc: `
+
+options:
+	-c count  write count packets to group then exit
+	-e every  write a packet every given elapsed interval to group
+	-s size   write packet of size bytes to group
+	-r        write packet of random size to group with upper limit set to size
+	-q        suppress debug information from stderr
+`,
+	},
+	{
+		Run:   runRelay,
+		Usage: "relay <relay.toml>",
+		Short: "",
+		Alias: []string{"send"},
+		Desc:  ``,
+	},
+	{
+		Run:   runGateway,
+		Usage: "gateway <config.toml>",
+		Short: "",
+		Alias: []string{"recv", "listen", "gw"},
+		Desc:  ``,
+	},
+}
+
 func main() {
-	commands := []*cli.Command{
-		relay,
-		gateway,
-		simulate,
-	}
 	log.SetFlags(0)
 	usage := func() {
 		data := struct {

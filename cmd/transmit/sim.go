@@ -16,23 +16,6 @@ import (
 
 const DefaultSize = 1024
 
-var simulate = &cli.Command{
-	Run:   runSimulate,
-	Usage: "simulate [-q] [-r] [-e] [-c] [-s] <group...>",
-	Short: "generate random packets and write them to a multicast group",
-	Alias: []string{"generate", "sim", "gen"},
-	Desc: `
-
-
-options:
-  -c count  write count packets to group then exit
-  -e every  write a packet every given elapsed interval to group
-  -s size   write packet of size bytes to group
-  -r        write packet of random size to group with upper limit set to size
-  -q        suppress debug information from stderr
-`,
-}
-
 func runSimulate(cmd *cli.Command, args []string) error {
 	every := cmd.Flag.Duration("e", time.Second, "write a packet every given elapsed interval")
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
@@ -69,7 +52,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				if err != nil {
 					break
 				}
-				log.Printf("%6d - %6d - %x", i+1, n, s.Sum(nil))
+				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, n, s.Sum(nil))
 				s.Reset()
 				time.Sleep(*every)
 			}
