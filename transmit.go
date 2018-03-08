@@ -63,10 +63,13 @@ func DecodePacket(r io.Reader) (*Packet, error) {
 	if _, err := io.ReadFull(r, p.Payload); err != nil {
 		return nil, ErrInvalid
 	}
+  bs := b.Bytes()
 	if err := binary.Read(r, binary.BigEndian, &p.Sum); err != nil {
 		return nil, err
 	}
-
+  if p.Sum != adler32.Checksum(bs) {
+    return nil, ErrCorrupted
+  }
 	return p, nil
 }
 
@@ -218,14 +221,18 @@ type subscriber struct {
 
 func (s *subscriber) Read(bs []byte) (int, error) {
 	vs := make([]byte, len(bs))
-	n, _ := s.Conn.Read(vs)
+	n, err := s.Conn.Read(vs)
+	if err != nil {
+		return n, err
+	}
+	vs = vs[:n]
 
 	b := new(bytes.Buffer)
 	binary.Write(b, binary.BigEndian, s.port)
 	binary.Write(b, binary.BigEndian, atomic.AddUint32(&s.count, 1))
 	binary.Write(b, binary.BigEndian, uint32(n))
-	b.Write(vs[:n])
-	binary.Write(b, binary.BigEndian, adler32.Checksum(vs[:n]))
+	b.Write(vs)
+	binary.Write(b, binary.BigEndian, adler32.Checksum(b.Bytes()))
 
 	return io.ReadFull(b, bs[:b.Len()])
 }
