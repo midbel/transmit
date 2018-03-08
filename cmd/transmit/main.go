@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/midbel/cli"
+	"github.com/midbel/transmit"
 )
 
 const helpText = `{{.Name}} contains various actions to monitor system activities.
@@ -81,9 +82,10 @@ func main() {
 }
 
 type cert struct {
-	Policy string `toml:"policy"`
-	Name   string `toml:"server"`
-	Path   string `toml:"location"`
+	Policy   string `toml:"policy"`
+	Name     string `toml:"server"`
+	Path     string `toml:"location"`
+	Insecure bool   `toml:"insecure"`
 
 	config *tls.Config
 }
@@ -94,6 +96,7 @@ func (c cert) Server() *tls.Config {
 		return cert
 	}
 
+	cert.InsecureSkipVerify = false
 	switch c.Policy {
 	case "request":
 		cert.ClientAuth = tls.RequestClientCert
@@ -121,8 +124,9 @@ func (c cert) Client() *tls.Config {
 		return nil
 	}
 	c.config = &tls.Config{
-		ServerName:   c.Name,
-		Certificates: []tls.Certificate{cert},
+		ServerName:         c.Name,
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: c.Insecure,
 	}
 	return c.config
 }
