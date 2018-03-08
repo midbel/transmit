@@ -202,6 +202,9 @@ func (p *proxy) redial() {
 		s := (i % 5) + 1
 		time.Sleep(time.Second * time.Duration(s))
 	}
+  if p.cert != nil {
+    p.Conn = tls.Client(p.Conn, p.cert)
+  }
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.writer = p.Conn
