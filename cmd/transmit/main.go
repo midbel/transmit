@@ -56,6 +56,10 @@ options:
 	},
 }
 
+func init() {
+	transmit.Logger.SetOutput(os.Stderr)
+}
+
 func main() {
 	log.SetFlags(0)
 	usage := func() {

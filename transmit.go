@@ -36,7 +36,7 @@ type Packet struct {
 }
 
 func init() {
-	Logger = log.New(ioutil.Discard, "", log.LstdFlags | log.LUTC)
+	Logger = log.New(ioutil.Discard, "", log.LstdFlags|log.LUTC)
 }
 
 func EncodePacket(p *Packet) ([]byte, error) {

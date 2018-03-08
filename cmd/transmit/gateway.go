@@ -47,7 +47,6 @@ func runGateway(cmd *cli.Command, args []string) error {
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
 	}
-	transmit.Logger.SetOutput(os.Stderr)
 	n := transmit.NewPortMux()
 	for i := range c.Routes {
 		r, err := c.Routes[i].Dial()
