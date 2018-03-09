@@ -2,8 +2,10 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"log"
 	"os"
+	"io/ioutil"
 	"path/filepath"
 	"text/template"
 
@@ -85,6 +87,7 @@ type cert struct {
 	Policy   string `toml:"policy"`
 	Name     string `toml:"server"`
 	Path     string `toml:"location"`
+	Root     string `toml:"root"`
 	Insecure bool   `toml:"insecure"`
 
 	config *tls.Config
@@ -96,7 +99,7 @@ func (c cert) Server() *tls.Config {
 		return cert
 	}
 
-	cert.InsecureSkipVerify = false
+	// cert.InsecureSkipVerify = false
 	switch c.Policy {
 	case "request":
 		cert.ClientAuth = tls.RequestClientCert
@@ -127,6 +130,19 @@ func (c cert) Client() *tls.Config {
 		ServerName:         c.Name,
 		Certificates:       []tls.Certificate{cert},
 		InsecureSkipVerify: c.Insecure,
+	}
+	if is, err := ioutil.ReadDir(c.Root); err == nil {
+		p := x509.NewCertPool()
+		for _, i := range is {
+			bs, err := ioutil.ReadFile(filepath.Join(c.Root, i.Name()))
+			if err != nil {
+				continue
+			}
+			if ok := p.AppendCertsFromPEM(bs); !ok {
+				log.Printf("fail to add certificate to %s", i.Name())
+			}
+		}
+		c.config.RootCAs = p
 	}
 	return c.config
 }

@@ -92,6 +92,7 @@ func Listen(a string, c *tls.Config, mux *PortMux) error {
 		c, err := s.Accept()
 		if err != nil {
 			Logger.Printf("error with connection from %s: %s", c.RemoteAddr(), err)
+			c.Close()
 			continue
 		}
 		if c, ok := c.(*net.TCPConn); ok {
