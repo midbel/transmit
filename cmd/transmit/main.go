@@ -86,8 +86,9 @@ func main() {
 type cert struct {
 	Policy   string `toml:"policy"`
 	Name     string `toml:"server"`
-	Path     string `toml:"location"`
 	Root     string `toml:"root"`
+	CertFile string `toml:"cert"`
+	KeyFile string  `toml:"key"`
 	Insecure bool   `toml:"insecure"`
 
 	config *tls.Config
@@ -118,10 +119,7 @@ func (c cert) Client() *tls.Config {
 	if c.config != nil {
 		return c.config
 	}
-	p := filepath.Join(c.Path, "transmit.pem")
-	k := filepath.Join(c.Path, "transmit.key")
-
-	cert, err := tls.LoadX509KeyPair(p, k)
+	cert, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
 	if err != nil {
 		return nil
 	}
