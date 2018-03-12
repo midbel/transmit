@@ -58,15 +58,15 @@ options:
 		Desc:  ``,
 	},
 	{
-		Run:   nil,
+		Run:   runDisassemble,
 		Usage: "disassemble",
 		Alias: []string{"split"},
 		Short: "split and send packets",
 		Desc:  ``,
 	},
 	{
-		Run:   nil,
-		Usage: "reassemble",
+		Run:   runReassemble,
+		Usage: "reassemble <local> <remote>",
 		Alias: []string{"merge"},
 		Short: "merge and send packets",
 		Desc:  ``,
