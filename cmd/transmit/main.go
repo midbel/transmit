@@ -57,6 +57,20 @@ options:
 		Alias: []string{"recv", "listen", "gw"},
 		Desc:  ``,
 	},
+	{
+		Run:   nil,
+		Usage: "disassemble",
+		Alias: []string{"split"},
+		Short: "split and send packets",
+		Desc:  ``,
+	},
+	{
+		Run:   nil,
+		Usage: "reassemble",
+		Alias: []string{"merge"},
+		Short: "merge and send packets",
+		Desc:  ``,
+	},
 }
 
 func init() {
