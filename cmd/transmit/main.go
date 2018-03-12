@@ -98,8 +98,7 @@ func (c cert) Server() *tls.Config {
 	if cert == nil {
 		return cert
 	}
-
-	// cert.InsecureSkipVerify = false
+	cert.ClientCAs = cert.RootCAs
 	switch c.Policy {
 	case "request":
 		cert.ClientAuth = tls.RequestClientCert
