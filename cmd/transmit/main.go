@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"io/ioutil"
 	"log"
 	"os"
-	"io/ioutil"
 	"path/filepath"
 	"text/template"
 
@@ -88,7 +88,7 @@ type cert struct {
 	Name     string `toml:"server"`
 	Root     string `toml:"root"`
 	CertFile string `toml:"cert"`
-	KeyFile string  `toml:"key"`
+	KeyFile  string `toml:"key"`
 	Insecure bool   `toml:"insecure"`
 
 	config *tls.Config
