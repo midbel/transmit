@@ -4,6 +4,6 @@ import (
 	"github.com/midbel/cli"
 )
 
-func runDisassemble(cmd *cli.Command, args []string) error {
+func runSplit(cmd *cli.Command, args []string) error {
 	return cmd.Flag.Parse(args)
 }

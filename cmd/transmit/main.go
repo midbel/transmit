@@ -58,17 +58,25 @@ options:
 		Desc:  ``,
 	},
 	{
-		Run:   runDisassemble,
-		Usage: "disassemble",
-		Alias: []string{"split"},
-		Short: "split and send packets",
-		Desc:  ``,
+		Run:   runSplit,
+		Usage: "split [-b] [-c] [-k] [-p] [-r] [-s] <remote> <local,...>",
+		Alias: []string{"disassemble"},
+		Short: "split and send fragmented packets",
+		Desc:  `
+options:
+  -b block  fragment entering packets into chunk of block bytes
+  -c count  use count connection(s) to send fragmented packets
+  -k keep   do not distribute the given rate among the requested connections
+  -p port   use port for routing the packets
+  -r rate   specify the maximum bandwidth by requested connections
+  -s size   bytes to read from entering connections
+`,
 	},
 	{
-		Run:   runReassemble,
-		Usage: "reassemble <local> <remote>",
-		Alias: []string{"merge"},
-		Short: "merge and send packets",
+		Run:   runMerge,
+		Usage: "merge <local> <remote,...>",
+		Alias: []string{"reassemble"},
+		Short: "merge and send fragmented packets",
 		Desc:  ``,
 	},
 }
