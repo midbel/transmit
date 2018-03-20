@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -43,11 +44,24 @@ type splitter struct {
 
 	sequence uint32
 	block    uint16
+	port     uint16
 	roll     hash.Hash32
 }
 
 func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
-	cs, ws := make([]net.Conn, n), make([]io.Writer, n)
+	_, p, err := net.SplitHostPort(a)
+	if err != nil {
+		return nil, err
+	}
+	wc := splitter{
+		conns:   make([]net.Conn, n),
+		writers: make([]io.Writer, n),
+		roll:    adler32.New(),
+		block:   uint16(s),
+	}
+	if p, err := strconv.Atoi(p); err != nil {
+		wc.port = uint16(p)
+	}
 	for i := 0; i < n; i++ {
 		c, err := net.Dial("tcp", a)
 		if err != nil {
@@ -58,9 +72,9 @@ func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
 			b := ratelimit.NewBucketWithRateAndClock(r, int64(s), nil)
 			w = ratelimit.Writer(w, b)
 		}
-		cs[i], ws[i] = c, w
+		wc.conns[i], wc.writers[i] = c, w
 	}
-	return &splitter{conns: cs, writers: ws, block: uint16(s), roll: adler32.New()}, nil
+	return &wc, nil
 }
 
 func (s *splitter) Write(bs []byte) (int, error) {
@@ -83,7 +97,7 @@ func (s *splitter) Write(bs []byte) (int, error) {
 
 		w := new(bytes.Buffer)
 		w.Write(sum[:])
-		binary.Write(w, binary.BigEndian, uint16(0))
+		binary.Write(w, binary.BigEndian, s.port)
 		binary.Write(w, binary.BigEndian, seq)
 		binary.Write(w, binary.BigEndian, uint16(i))
 		binary.Write(w, binary.BigEndian, uint16(count))
@@ -161,7 +175,11 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 			return err
 		}
 		defer c.Close()
-		go io.Copy(ws, c)
+		r := &incoming{
+			Conn:   c,
+			buffer: make([]byte, s.Length.Int()),
+		}
+		go io.Copy(ws, r)
 	}
 	return nil
 }
