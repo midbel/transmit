@@ -5,7 +5,9 @@ import (
   "syscall"
 )
 
-type sysClock struct {}
+type sysClock struct {
+  delay time.Duration
+}
 
 func (s sysClock) Now() time.Time {
 	var t syscall.Timeval
@@ -16,7 +18,7 @@ func (s sysClock) Now() time.Time {
 }
 
 func (s sysClock) Sleep(d time.Duration) {
-	if d <= time.Millisecond * 2 {
+	if d <= s.delay {
 		return
 	}
   t := syscall.Timespec{
