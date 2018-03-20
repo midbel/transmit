@@ -62,7 +62,7 @@ options:
 		Usage: "split [-b] [-c] [-k] [-p] [-r] [-s] <remote> <local,...>",
 		Alias: []string{"disassemble"},
 		Short: "split and send fragmented packets",
-		Desc:  `
+		Desc: `
 options:
   -b block  fragment entering packets into chunk of block bytes
   -c count  use count connection(s) to send fragmented packets

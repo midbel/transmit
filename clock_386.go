@@ -1,12 +1,12 @@
 package transmit
 
 import (
-  "time"
-  "syscall"
+	"syscall"
+	"time"
 )
 
 type sysClock struct {
-  delay time.Duration
+	delay time.Duration
 }
 
 func (s sysClock) Now() time.Time {
@@ -21,9 +21,9 @@ func (s sysClock) Sleep(d time.Duration) {
 	if d <= s.delay {
 		return
 	}
-  t := syscall.Timespec{
-    Sec: 0,
-    Nsec: int32(d.Nanoseconds()),
-  }
+	t := syscall.Timespec{
+		Sec:  0,
+		Nsec: int32(d.Nanoseconds()),
+	}
 	syscall.Nanosleep(&t, nil)
 }
