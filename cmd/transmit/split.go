@@ -37,8 +37,9 @@ func (i *incoming) Read(bs []byte) (int, error) {
 type splitter struct {
 	conns []net.Conn
 
-	writers []io.Writer
+	mu      sync.Mutex
 	current int
+	writers []io.Writer
 
 	sequence uint32
 	block    uint16
@@ -57,9 +58,9 @@ func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
 			b := ratelimit.NewBucketWithRateAndClock(r, int64(s), nil)
 			w = ratelimit.Writer(w, b)
 		}
-		cs, ws = append(cs, c), append(ws, w)
+		cs[i], ws[i] = c, w
 	}
-	return &splitter{conns: cs, writers: ws, block: uint16(s)}, nil
+	return &splitter{conns: cs, writers: ws, block: uint16(s), roll: adler32.New()}, nil
 }
 
 func (s *splitter) Write(bs []byte) (int, error) {
@@ -73,8 +74,8 @@ func (s *splitter) Write(bs []byte) (int, error) {
 	defer s.roll.Reset()
 
 	var t int
+	vs := make([]byte, int(s.block))
 	for i, r := 0, bytes.NewReader(bs); r.Len() > 0; i++ {
-		vs := make([]byte, int(s.block))
 		n, _ := r.Read(vs)
 		t += n
 
@@ -91,14 +92,21 @@ func (s *splitter) Write(bs []byte) (int, error) {
 		binary.Write(w, binary.BigEndian, adler32.Checksum(vs[:n]))
 		binary.Write(w, binary.BigEndian, s.roll.Sum32())
 
-		curr := atomic.LoadUint32(&s.current)
-		if _, err := io.Copy(s.writers[curr], w); err != nil {
+		if _, err := io.Copy(s.nextWriter(), w); err != nil {
 			return t, err
 		}
-		curr = curr + 1%len(s.writers)
-		atomic.StoreUint32(&s.current, curr)
 	}
 	return t, nil
+}
+
+func (s *splitter) nextWriter() io.Writer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	w := s.writers[s.current]
+	s.current = (s.current + 1) % len(s.writers)
+	return w
+
 }
 
 func (s *splitter) Close() error {
