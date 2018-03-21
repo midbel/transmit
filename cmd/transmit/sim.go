@@ -42,6 +42,8 @@ func runSimulate(cmd *cli.Command, args []string) error {
 		}
 		wg.Add(1)
 		go func(c net.Conn) {
+			var sum int64
+			n := time.Now()
 			log.Printf("start writing packets to %s", c.RemoteAddr())
 			s := md5.New()
 			r := io.TeeReader(rand.Reader, s)
@@ -54,6 +56,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				if err != nil {
 					break
 				}
+				sum += n
 				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, n, s.Sum(nil))
 				s.Reset()
 				time.Sleep(*every)
@@ -61,7 +64,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			c.Close()
 			wg.Done()
 
-			log.Printf("done writing packets to %s", c.RemoteAddr())
+			log.Printf("%d bytes written in %s to %s", sum, time.Since(n), c.RemoteAddr())
 		}(c)
 	}
 	wg.Wait()
