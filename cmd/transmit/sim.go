@@ -17,11 +17,13 @@ import (
 const DefaultSize = 1024
 
 func runSimulate(cmd *cli.Command, args []string) error {
+	size := cli.Size(4096)
+	cmd.Flag.Var(&size, "s", "write packets of size byts to group")
 	every := cmd.Flag.Duration("e", time.Second, "write a packet every given elapsed interval")
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
-	size := cmd.Flag.Int("s", 1024, "write packets of size byts to group")
 	alea := cmd.Flag.Bool("r", false, "write packets of random size with upper limit set to to size")
 	quiet := cmd.Flag.Bool("q", false, "suppress write debug information on stderr")
+	proto := cmd.Flag.String("p", "tcp", "protocol")
 
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -33,7 +35,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 
 	var wg sync.WaitGroup
 	for _, g := range cmd.Flag.Args() {
-		c, err := net.Dial("udp", g)
+		c, err := net.Dial(*proto, g)
 		if err != nil {
 			log.Printf("fail to subscribe to %s: %s", g, err)
 			continue
@@ -44,7 +46,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			s := md5.New()
 			r := io.TeeReader(rand.Reader, s)
 			for i := 0; *count <= 0 || i < *count; i++ {
-				z := int64(*size)
+				z := size.Int()
 				if *alea {
 					z = random.Int63n(z)
 				}
