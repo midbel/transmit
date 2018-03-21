@@ -185,23 +185,25 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 	}
 	defer a.Close()
 
+	queue := make(chan []byte, 1000)
+	go func() {
+		for {
+			c, err := a.Accept()
+			if err != nil {
+				return
+			}
+			go handle(c, int(s.Length.Int()), queue)
+		}
+	}()
+
 	ws, err := Split(remote, s.Count, int(s.Block.Int()), s.Limiter)
 	if err != nil {
 		return err
 	}
-	queue := make(chan []byte, 1000)
-	go func() {
-		for bs := range queue {
-			ws.Write(bs)
-		}
-	}()
-	defer ws.Close()
-	for {
-		c, err := a.Accept()
-		if err != nil {
+	for bs := range queue {
+		if _, err := ws.Write(bs); err != nil {
 			return err
 		}
-		go handle(c, int(s.Length.Int()), queue)
 	}
 	return nil
 }
