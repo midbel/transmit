@@ -83,7 +83,7 @@ func Split(a string, n, s int, k Limiter) (io.WriteCloser, error) {
 		wc.port = uint16(p)
 	}
 	for i := 0; i < n; i++ {
-		c, err := net.Dial("tcp", a)
+		c, err := transmit.Proxy(a, nil)
 		if err != nil {
 			return nil, err
 		}
