@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+type Clock interface {
+	Now() time.Time
+	Sleep(time.Duration)
+}
+
+func SystemClock() Clock {
+	return sysClock{time.Millisecond}
+}
+
+func RealClock() Clock {
+	return realClock{}
+}
+
 type sysClock struct {
 	delay time.Duration
 }
