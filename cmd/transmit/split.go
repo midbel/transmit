@@ -12,27 +12,47 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
+	"github.com/midbel/transmit"
 )
 
+type Limiter struct {
+	Rate cli.Size
+	Fill cli.Size
+	Keep bool
+	Syst bool
+}
+
+func (i Limiter) Writer(w io.Writer, c int) io.Writer {
+	if i.Rate == 0 {
+		return w
+	}
+	r := i.Rate
+	if !i.Keep {
+		r = i.Rate.Divide(c)
+	}
+	var k transmit.Clock
+	if i.Syst {
+		k = transmit.SystemClock()
+	} else {
+		k = transmit.RealClock()
+	}
+	y := r.Int()
+	if i.Fill > 0 {
+		y = i.Fill.Int()
+	}
+	b := ratelimit.NewBucketWithRateAndClock(r.Float(), y, k)
+	return ratelimit.Writer(w, b)
+}
+
 type SplitOptions struct {
-	Rate   cli.Size
+	Limiter
 	Length cli.Size
 	Block  cli.Size
-	Syst   bool
 	Count  int
-}
-
-type incoming struct {
-	net.Conn
-	buffer []byte
-}
-
-func (i *incoming) Read(bs []byte) (int, error) {
-	n, err := i.Conn.Read(i.buffer)
-	return copy(bs, i.buffer[:n]), err
 }
 
 type splitter struct {
@@ -48,7 +68,7 @@ type splitter struct {
 	roll     hash.Hash32
 }
 
-func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
+func Split(a string, n, s int, k Limiter) (io.WriteCloser, error) {
 	_, p, err := net.SplitHostPort(a)
 	if err != nil {
 		return nil, err
@@ -59,7 +79,7 @@ func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
 		roll:    adler32.New(),
 		block:   uint16(s),
 	}
-	if p, err := strconv.Atoi(p); err != nil {
+	if p, err := strconv.Atoi(p); err == nil {
 		wc.port = uint16(p)
 	}
 	for i := 0; i < n; i++ {
@@ -67,12 +87,7 @@ func Split(a string, n, s int, r float64) (io.WriteCloser, error) {
 		if err != nil {
 			return nil, err
 		}
-		var w io.Writer = c
-		if r > 0 {
-			b := ratelimit.NewBucketWithRateAndClock(r, int64(s), nil)
-			w = ratelimit.Writer(w, b)
-		}
-		wc.conns[i], wc.writers[i] = c, w
+		wc.conns[i], wc.writers[i] = c, k.Writer(c, n)
 	}
 	return &wc, nil
 }
@@ -120,7 +135,6 @@ func (s *splitter) nextWriter() io.Writer {
 	w := s.writers[s.current]
 	s.current = (s.current + 1) % len(s.writers)
 	return w
-
 }
 
 func (s *splitter) Close() error {
@@ -135,10 +149,17 @@ func (s *splitter) Close() error {
 
 func runSplit(cmd *cli.Command, args []string) error {
 	var s SplitOptions
+	s.Rate, _ = cli.ParseSize("8m")
+	s.Fill, _ = cli.ParseSize("4K")
+	s.Length, _ = cli.ParseSize("32K")
+	s.Block, _ = cli.ParseSize("1K")
+
 	cmd.Flag.Var(&s.Rate, "r", "rate")
+	cmd.Flag.Var(&s.Fill, "f", "fill")
 	cmd.Flag.Var(&s.Length, "s", "size")
 	cmd.Flag.Var(&s.Block, "b", "block")
 	cmd.Flag.IntVar(&s.Count, "n", 4, "count")
+	cmd.Flag.BoolVar(&s.Keep, "k", false, "keep")
 	cmd.Flag.BoolVar(&s.Syst, "y", false, "system")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -164,22 +185,52 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 	}
 	defer a.Close()
 
-	ws, err := Split(remote, s.Count, int(s.Block.Int()), s.Rate.Float())
+	ws, err := Split(remote, s.Count, int(s.Block.Int()), s.Limiter)
 	if err != nil {
 		return err
 	}
+	queue := make(chan []byte, 1000)
+	go func() {
+		for bs := range queue {
+			ws.Write(bs)
+		}
+	}()
 	defer ws.Close()
 	for {
 		c, err := a.Accept()
 		if err != nil {
 			return err
 		}
-		defer c.Close()
-		r := &incoming{
-			Conn:   c,
-			buffer: make([]byte, s.Length.Int()),
-		}
-		go io.Copy(ws, r)
+		go handle(c, int(s.Length.Int()), queue)
 	}
 	return nil
+}
+
+func handle(c net.Conn, n int, queue chan<- []byte) {
+	defer c.Close()
+	if c, ok := c.(*net.TCPConn); ok {
+		c.SetKeepAlive(true)
+	}
+
+	w := time.Now()
+	var count, sum int
+	buf := new(bytes.Buffer)
+	for i, bs := 1, make([]byte, n); ; i++ {
+		for {
+			n, err := c.Read(bs)
+			if n == 0 && err != nil {
+				return
+			}
+			buf.Write(bs[:n])
+			if n < len(bs) {
+				break
+			}
+		}
+		sum, count = sum+buf.Len(), i
+		vs := make([]byte, buf.Len())
+		io.ReadFull(buf, vs)
+		queue <- vs
+		buf.Reset()
+	}
+	log.Printf("%d bytes read in %s (%d packets)", sum, time.Since(w), count)
 }

@@ -62,9 +62,9 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				time.Sleep(*every)
 			}
 			c.Close()
-			wg.Done()
-
 			log.Printf("%d bytes written in %s to %s", sum, time.Since(n), c.RemoteAddr())
+
+			wg.Done()
 		}(c)
 	}
 	wg.Wait()
