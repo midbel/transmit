@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
-	"hash"
 	"hash/adler32"
 	"io"
 	"log"
@@ -18,6 +17,12 @@ import (
 	"github.com/midbel/cli"
 	"github.com/midbel/transmit"
 )
+
+type Block struct {
+	Sum     []byte
+	Payload []byte
+	Port    uint16
+}
 
 type Limiter struct {
 	Rate cli.Size
@@ -64,23 +69,13 @@ type splitter struct {
 
 	sequence uint32
 	block    uint16
-	port     uint16
-	roll     hash.Hash32
 }
 
-func Split(a string, n, s int, k Limiter) (io.WriteCloser, error) {
-	_, p, err := net.SplitHostPort(a)
-	if err != nil {
-		return nil, err
-	}
+func Split(a string, n, s int, k Limiter) (*splitter, error) {
 	wc := splitter{
 		conns:   make([]net.Conn, n),
 		writers: make([]io.Writer, n),
-		roll:    adler32.New(),
 		block:   uint16(s),
-	}
-	if p, err := strconv.Atoi(p); err == nil {
-		wc.port = uint16(p)
 	}
 	for i := 0; i < n; i++ {
 		c, err := transmit.Proxy(a, nil)
@@ -92,35 +87,29 @@ func Split(a string, n, s int, k Limiter) (io.WriteCloser, error) {
 	return &wc, nil
 }
 
-func (s *splitter) Write(bs []byte) (int, error) {
+func (s *splitter) Split(b *Block) error {
 	// TODO: try to make it a kind of multiwriter
 	seq := atomic.AddUint32(&s.sequence, 1)
-	sum := md5.Sum(bs)
-
-	count, mod := len(bs)/int(s.block), len(bs)%int(s.block)
+	count, mod := len(b.Payload)/int(s.block), len(b.Payload)%int(s.block)
 	if mod != 0 {
 		count++
 	}
-	defer s.roll.Reset()
-
-	var t int
+	roll := adler32.New()
 	vs := make([]byte, int(s.block))
-	for i, r := 0, bytes.NewReader(bs); r.Len() > 0; i++ {
+	for i, r := 0, bytes.NewReader(b.Payload); r.Len() > 0; i++ {
 		n, _ := r.Read(vs)
-		t += n
-
-		s.roll.Write(vs[:n])
+		roll.Write(vs[:n])
 
 		w := new(bytes.Buffer)
-		w.Write(sum[:])
-		binary.Write(w, binary.BigEndian, s.port)
+		w.Write(b.Sum)
+		binary.Write(w, binary.BigEndian, b.Port)
 		binary.Write(w, binary.BigEndian, seq)
 		binary.Write(w, binary.BigEndian, uint16(i))
 		binary.Write(w, binary.BigEndian, uint16(count))
 		binary.Write(w, binary.BigEndian, uint16(n))
 		w.Write(vs[:n])
 		binary.Write(w, binary.BigEndian, adler32.Checksum(vs[:n]))
-		binary.Write(w, binary.BigEndian, s.roll.Sum32())
+		binary.Write(w, binary.BigEndian, roll.Sum32())
 
 		// TODO: speed up fragment writing by running each write in its own goroutine
 		// TODO: maybe limited by a sema (chan struct{})
@@ -132,10 +121,10 @@ func (s *splitter) Write(bs []byte) (int, error) {
 		// }(s.nextWriter(), w)
 
 		if _, err := io.Copy(s.nextWriter(), w); err != nil {
-			return t, err
+			return err
 		}
 	}
-	return t, nil
+	return nil
 }
 
 func (s *splitter) nextWriter() io.Writer {
@@ -189,20 +178,28 @@ func runSplit(cmd *cli.Command, args []string) error {
 }
 
 func listenAndSplit(local, remote string, s SplitOptions) error {
+	_, p, err := net.SplitHostPort(local)
+	if err != nil {
+		return err
+	}
+	port, err := strconv.ParseUint(p, 10, 16)
+	if err != nil {
+		return err
+	}
 	a, err := net.Listen("tcp", local)
 	if err != nil {
 		return err
 	}
 	defer a.Close()
 
-	queue := make(chan []byte, 1000)
+	queue := make(chan *Block, 1000)
 	go func() {
 		for {
 			c, err := a.Accept()
 			if err != nil {
 				return
 			}
-			go handle(c, int(s.Length.Int()), queue)
+			go handle(c, uint16(port), int(s.Length.Int()), queue)
 		}
 	}()
 
@@ -211,39 +208,46 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 		return err
 	}
 	for bs := range queue {
-		if _, err := ws.Write(bs); err != nil {
+		if err := ws.Split(bs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func handle(c net.Conn, n int, queue chan<- []byte) {
+func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// TODO: try to create the chunk here instead of in the splitter
 	defer c.Close()
 	if c, ok := c.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
 	}
 
-	w := time.Now()
-	var count, sum int
-	buf := new(bytes.Buffer)
+	sum, buf, w := md5.New(), new(bytes.Buffer), time.Now()
+	var count, total int
 	for i, bs := 1, make([]byte, n); ; i++ {
+		w := io.MultiWriter(buf, sum)
 		for {
 			n, err := c.Read(bs)
 			if n == 0 && err != nil {
 				return
 			}
-			buf.Write(bs[:n])
+			w.Write(bs[:n])
 			if n < len(bs) {
 				break
 			}
 		}
-		sum, count = sum+buf.Len(), i
-		vs := make([]byte, buf.Len())
-		io.ReadFull(buf, vs)
-		queue <- vs
+		total, count = total+buf.Len(), i
+		b := &Block{
+			Sum:     sum.Sum(nil),
+			Port:    p,
+			Payload: make([]byte, buf.Len()),
+		}
+		if _, err := io.ReadFull(buf, b.Payload); err != nil {
+			return
+		}
+		queue <- b
 		buf.Reset()
+		sum.Reset()
 	}
-	log.Printf("%d bytes read in %s (%d packets)", sum, time.Since(w), count)
+	log.Printf("%d bytes read in %s (%d packets)", total, time.Since(w), count)
 }
