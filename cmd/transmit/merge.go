@@ -129,8 +129,8 @@ func runMerge(cmd *cli.Command, args []string) error {
 		if k == nil {
 			continue
 		}
-		delete(when, c.Key)
 		log.Printf("%6d | %6d | %6d | %x | %s", k.Id, k.Count, k.Length, k.Sum, time.Since(when[c.Key]))
+		delete(when, c.Key)
 		if w, ok := ws[k.Port]; ok {
 			if _, err := w.Write(k.Payload); err != nil {
 				log.Println(err)
