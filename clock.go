@@ -1,6 +1,7 @@
 package transmit
 
 import (
+	"syscall"
 	"time"
 )
 
@@ -10,7 +11,8 @@ type Clock interface {
 }
 
 func SystemClock() Clock {
-	return sysClock{time.Millisecond}
+	s := sysClock{threshold: guessThreshold()}
+	return s
 }
 
 func RealClock() Clock {
@@ -25,4 +27,12 @@ func (r realClock) Now() time.Time {
 
 func (r realClock) Sleep(d time.Duration) {
 	time.Sleep(d)
+}
+
+func now() time.Time {
+	var t syscall.Timeval
+	if err := syscall.Gettimeofday(&t); err != nil {
+		return time.Now()
+	}
+	return time.Unix(int64(t.Sec), int64(t.Usec*1000))
 }

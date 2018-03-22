@@ -6,31 +6,51 @@ import (
 )
 
 type sysClock struct {
-	delay time.Duration
+	delay, threshold time.Duration
 }
 
 func (s sysClock) Now() time.Time {
-	var t syscall.Timeval
-	if err := syscall.Gettimeofday(&t); err != nil {
-		return time.Now()
-	}
-	return time.Unix(int64(t.Sec), int64(t.Usec*1000))
+	return now()
 }
 
 func (s sysClock) Sleep(d time.Duration) {
-	if d <= s.delay {
+	if d < s.threshold {
+		s.delay += d
+	}
+	if s.delay < s.threshold {
 		return
 	}
 	var sec, nsec time.Duration
-	if d > time.Second {
-		sec = d.Truncate(time.Second)
-		nsec = d - sec
+	if s.delay > time.Second {
+		sec = s.delay.Truncate(time.Second)
+		nsec = s.delay - sec
 	} else {
-		nsec = d
+		nsec = s.delay
+	}
+	var sec, nsec time.Duration
+	if d > time.Second {
+		sec = s.delay.Truncate(time.Second)
+		nsec = s.delay - sec
+	} else {
+		nsec = s.delay
 	}
 	t := syscall.Timespec{
 		Sec:  int64(sec.Seconds()),
 		Nsec: nsec.Nanoseconds(),
 	}
 	syscall.Nanosleep(&t, nil)
+	s.delay = 0
+}
+
+func guessThreshold() time.Duration {
+	t := syscall.Timespec{
+		Sec:  0,
+		Nsec: time.Millisecond.Nanoseconds(),
+	}
+	b := now()
+	if err := syscall.Nanosleep(&t, nil); err != nil {
+		return time.Millisecond
+	}
+	a := now()
+	return a.Sub(b).Truncate(time.Millisecond)
 }
