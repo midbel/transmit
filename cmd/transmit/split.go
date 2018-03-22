@@ -239,6 +239,9 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 				break
 			}
 		}
+		if buf.Len() == 0 {
+			continue
+		}
 		total, count = total+buf.Len(), i
 		b := &Block{
 			Sum:     sum.Sum(nil),
