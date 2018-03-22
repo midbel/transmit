@@ -11,12 +11,12 @@ type Clock interface {
 }
 
 func SystemClock() Clock {
-	s := sysClock{threshold: guessThreshold()}
+	s := &sysClock{threshold: guessThreshold()}
 	return s
 }
 
 func RealClock() Clock {
-	return realClock{}
+	return &realClock{}
 }
 
 type realClock struct{}

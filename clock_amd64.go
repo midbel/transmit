@@ -9,13 +9,15 @@ type sysClock struct {
 	delay, threshold time.Duration
 }
 
-func (s sysClock) Now() time.Time {
+func (s *sysClock) Now() time.Time {
 	return now()
 }
 
-func (s sysClock) Sleep(d time.Duration) {
+func (s *sysClock) Sleep(d time.Duration) {
 	if d < s.threshold {
 		s.delay += d
+	} else {
+		s.delay = d
 	}
 	if s.delay < s.threshold {
 		return
