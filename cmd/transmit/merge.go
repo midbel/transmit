@@ -116,7 +116,11 @@ func runMerge(cmd *cli.Command, args []string) error {
 		return err
 	}
 	m := Merge()
+	when := make(map[Key]time.Time)
 	for c := range queue {
+		if _, ok := when[c.Key]; !ok {
+			when[c.Key] = time.Now()
+		}
 		k, err := m.Merge(c)
 		if err != nil {
 			log.Println(err)
@@ -125,12 +129,12 @@ func runMerge(cmd *cli.Command, args []string) error {
 		if k == nil {
 			continue
 		}
+		delete(when, c.Key)
+		log.Printf("%6d | %6d | %6d | %x | %s", k.Id, k.Count, k.Length, k.Sum, time.Since(when[c.Key]))
 		if w, ok := ws[k.Port]; ok {
 			if _, err := w.Write(k.Payload); err != nil {
 				log.Println(err)
 			}
-		} else {
-			log.Printf("no route configured for %d", k.Port)
 		}
 	}
 	return nil

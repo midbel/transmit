@@ -96,6 +96,8 @@ func (s *splitter) Split(b *Block) error {
 	}
 	roll := adler32.New()
 	vs := make([]byte, int(s.block))
+
+	t := time.Now()
 	for i, r := 0, bytes.NewReader(b.Payload); r.Len() > 0; i++ {
 		n, _ := r.Read(vs)
 		roll.Write(vs[:n])
@@ -124,6 +126,7 @@ func (s *splitter) Split(b *Block) error {
 			return err
 		}
 	}
+	log.Printf("%6d | %6d | %6d | %x | %s", seq, count, len(b.Payload), b.Sum, time.Since(t))
 	return nil
 }
 
