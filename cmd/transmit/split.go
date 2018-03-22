@@ -93,6 +93,7 @@ func Split(a string, n, s int, k Limiter) (io.WriteCloser, error) {
 }
 
 func (s *splitter) Write(bs []byte) (int, error) {
+	// TODO: try to make it a kind of multiwriter
 	seq := atomic.AddUint32(&s.sequence, 1)
 	sum := md5.Sum(bs)
 
@@ -120,6 +121,15 @@ func (s *splitter) Write(bs []byte) (int, error) {
 		w.Write(vs[:n])
 		binary.Write(w, binary.BigEndian, adler32.Checksum(vs[:n]))
 		binary.Write(w, binary.BigEndian, s.roll.Sum32())
+
+		// TODO: speed up fragment writing by running each write in its own goroutine
+		// TODO: maybe limited by a sema (chan struct{})
+		// TODO: Write should exit as soon as any goroutine meet first an error
+		// go func(w io.Writer, r io.Reader) {
+		// 	if _, err := io.Copy(w, r); err != nil {
+		//
+		// 	}
+		// }(s.nextWriter(), w)
 
 		if _, err := io.Copy(s.nextWriter(), w); err != nil {
 			return t, err
@@ -209,6 +219,7 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 }
 
 func handle(c net.Conn, n int, queue chan<- []byte) {
+	// TODO: try to create the chunk here instead of in the splitter
 	defer c.Close()
 	if c, ok := c.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
