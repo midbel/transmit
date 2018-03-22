@@ -30,12 +30,13 @@ Use {{.Name}} [command] -h for more information about its usage.
 var commands = []*cli.Command{
 	{
 		Run:   runSimulate,
-		Usage: "simulate [-q] [-r] [-e] [-c] [-s] <group...>",
-		Short: "generate random packets and write them to a multicast group",
+		Usage: "simulate [-q] [-r] [-e] [-c] [-s] [-p] <host:port...>",
+		Short: "generate random packets and send them to the specify addresses",
 		Alias: []string{"generate", "sim", "gen"},
 		Desc: `
 
 options:
+	-c proto  use the specify protocol (tcp or udp)
 	-c count  write count packets to group then exit
 	-e every  write a packet every given elapsed interval to group
 	-s size   write packet of size bytes to group
@@ -59,17 +60,18 @@ options:
 	},
 	{
 		Run:   runSplit,
-		Usage: "split [-b] [-c] [-k] [-p] [-r] [-s] <remote> <local,...>",
+		Usage: "split [-b] [-n] [-k] [-f] [-r] [-s] [-y] <remote> <local,...>",
 		Alias: []string{"disassemble"},
 		Short: "split and send fragmented packets",
 		Desc: `
 options:
-  -b block  fragment entering packets into chunk of block bytes
-  -c count  use count connection(s) to send fragmented packets
-  -k keep   do not distribute the given rate among the requested connections
-  -p port   use port for routing the packets
-  -r rate   specify the maximum bandwidth by requested connections
-  -s size   bytes to read from entering connections
+  -b block  split incoming packets by chunks of block bytes
+  -n count  use count outgoing connection(s)
+  -k keep   use same rate for all outgoing connections(s)
+  -r rate   specify bandwidth by requested connections
+  -f fill   capacity of the bucket used to limit bandwidth
+  -s size   buffer to read from incoming connections
+  -y        use system clock
 `,
 	},
 	{

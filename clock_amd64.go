@@ -1,8 +1,8 @@
 package transmit
 
 import (
-  "time"
-  "syscall"
+	"syscall"
+	"time"
 )
 
 type sysClock struct {
