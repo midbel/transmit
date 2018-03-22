@@ -29,13 +29,6 @@ func (s *sysClock) Sleep(d time.Duration) {
 	} else {
 		nsec = s.delay
 	}
-	var sec, nsec time.Duration
-	if d > time.Second {
-		sec = s.delay.Truncate(time.Second)
-		nsec = s.delay - sec
-	} else {
-		nsec = s.delay
-	}
 	t := syscall.Timespec{
 		Sec:  int64(sec.Seconds()),
 		Nsec: nsec.Nanoseconds(),

@@ -229,6 +229,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	var count, total int
 	for i, bs := 1, make([]byte, n); ; i++ {
 		w := io.MultiWriter(buf, sum)
+
 		for {
 			n, err := c.Read(bs)
 			if n == 0 && err != nil {
