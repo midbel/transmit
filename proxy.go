@@ -1,12 +1,12 @@
 package transmit
 
 import (
-  "crypto/tls"
-  "io"
-  "io/ioutil"
-  "net"
-  "sync"
-  "time"
+	"crypto/tls"
+	"io"
+	"io/ioutil"
+	"net"
+	"sync"
+	"time"
 )
 
 type proxy struct {
