@@ -19,6 +19,7 @@ import (
 )
 
 type Block struct {
+	Id      uint16
 	Sum     []byte
 	Payload []byte
 	Port    uint16
@@ -61,7 +62,8 @@ type SplitOptions struct {
 }
 
 type splitter struct {
-	conns []net.Conn
+	dtstamp time.Time
+	conns   []net.Conn
 
 	mu      sync.Mutex
 	current int
@@ -73,6 +75,7 @@ type splitter struct {
 
 func Split(a string, n, s int, k Limiter) (*splitter, error) {
 	wc := splitter{
+		dtstamp: time.Now(),
 		conns:   make([]net.Conn, n),
 		writers: make([]io.Writer, n),
 		block:   uint16(s),
@@ -126,7 +129,7 @@ func (s *splitter) Split(b *Block) error {
 			return err
 		}
 	}
-	log.Printf("%6d | %6d | %6d | %x | %s", seq, count, len(b.Payload), b.Sum, time.Since(t))
+	log.Printf("%6d | %6d | %9d | %x | %16s | %16s", seq, count, len(b.Payload), b.Sum, time.Since(t), time.Since(s.dtstamp))
 	return nil
 }
 
@@ -227,7 +230,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 
 	sum, buf, w := md5.New(), new(bytes.Buffer), time.Now()
 	var count, total int
-	for i, bs := 1, make([]byte, n); ; i++ {
+	for i, bs := 0, make([]byte, n); ; i++ {
 		w := io.MultiWriter(buf, sum)
 
 		for {
@@ -243,8 +246,9 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		if buf.Len() == 0 {
 			continue
 		}
-		total, count = total+buf.Len(), i
+		total, count = total+buf.Len(), i+1
 		b := &Block{
+			Id:      uint16(i),
 			Sum:     sum.Sum(nil),
 			Port:    p,
 			Payload: make([]byte, buf.Len()),

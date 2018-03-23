@@ -89,7 +89,7 @@ func (m *merger) Merge(c *Chunk) (*Chunk, error) {
 		if s := m.sum.Sum(nil); !c.Key.Equal(s) {
 			return nil, ErrChecksum
 		}
-		c.Length, c.Frag, c.Count = uint16(buf.Len()), 0, 0
+		c.Length, c.Frag = uint16(buf.Len()), 0
 		c.Payload = buf.Bytes()
 		return c, nil
 	}
@@ -117,6 +117,7 @@ func runMerge(cmd *cli.Command, args []string) error {
 	}
 	m := Merge()
 	when := make(map[Key]time.Time)
+	dtstamp := time.Now()
 	for c := range queue {
 		if _, ok := when[c.Key]; !ok {
 			when[c.Key] = time.Now()
@@ -129,7 +130,7 @@ func runMerge(cmd *cli.Command, args []string) error {
 		if k == nil {
 			continue
 		}
-		log.Printf("%6d | %6d | %6d | %x | %s", k.Id, k.Count, k.Length, k.Sum, time.Since(when[c.Key]))
+		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, k.Length, k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
 		delete(when, c.Key)
 		if w, ok := ws[k.Port]; ok {
 			if _, err := w.Write(k.Payload); err != nil {
