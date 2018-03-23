@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/md5"
-	"crypto/rand"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/midbel/cli"
+	"github.com/midbel/rustine/rw"
 )
 
 const DefaultSize = 1024
@@ -23,6 +23,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
 	alea := cmd.Flag.Bool("r", false, "write packets of random size with upper limit set to to size")
 	quiet := cmd.Flag.Bool("q", false, "suppress write debug information on stderr")
+	zero := cmd.Flag.Bool("z", false, "fill packets only with zero")
 	proto := cmd.Flag.String("p", "tcp", "protocol")
 
 	if err := cmd.Flag.Parse(args); err != nil {
@@ -42,11 +43,17 @@ func runSimulate(cmd *cli.Command, args []string) error {
 		}
 		wg.Add(1)
 		go func(c net.Conn) {
+			var reader io.Reader
+			if *zero {
+				reader = rw.Zero(int(size.Int()))
+			} else {
+				reader = rw.Rand()
+			}
 			var sum int64
 			n := time.Now()
 			log.Printf("start writing packets to %s", c.RemoteAddr())
 			s := md5.New()
-			r := io.TeeReader(rand.Reader, s)
+			r := io.TeeReader(reader, s)
 			for i := 0; *count <= 0 || i < *count; i++ {
 				z := size.Int()
 				if *alea {
