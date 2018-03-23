@@ -25,6 +25,10 @@ type Block struct {
 	Port    uint16
 }
 
+func (b *Block) Chunks() []*Chunk {
+	return nil
+}
+
 type Limiter struct {
 	Rate cli.Size
 	Fill cli.Size
@@ -228,37 +232,37 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		c.SetKeepAlive(true)
 	}
 
-	sum, buf, w := md5.New(), new(bytes.Buffer), time.Now()
+	sum, w := md5.New(), time.Now()
 	var count, total int
-	for i, bs := 0, make([]byte, n); ; i++ {
+
+	for i, buf := 0, new(bytes.Buffer); ; i++ {
+		bs := make([]byte, n)
 		w := io.MultiWriter(buf, sum)
 
-		for {
-			n, err := c.Read(bs)
-			if n == 0 && err != nil {
+		for j := 1; ; j++ {
+			r, err := c.Read(bs)
+			if r == 0 {
 				return
 			}
-			w.Write(bs[:n])
-			if n < len(bs) {
+			w.Write(bs[:r])
+			if r < n || err != nil {
 				break
 			}
 		}
-		if buf.Len() == 0 {
-			continue
-		}
 		total, count = total+buf.Len(), i+1
-		b := &Block{
-			Id:      uint16(i),
-			Sum:     sum.Sum(nil),
-			Port:    p,
-			Payload: make([]byte, buf.Len()),
+		if buf.Len() > 0 {
+			b := &Block{
+				Id:      uint16(i),
+				Sum:     sum.Sum(nil),
+				Port:    p,
+				Payload: make([]byte, buf.Len()),
+			}
+			if _, err := io.ReadFull(buf, b.Payload); err == nil {
+				queue <- b
+			}
 		}
-		if _, err := io.ReadFull(buf, b.Payload); err != nil {
-			return
-		}
-		queue <- b
-		buf.Reset()
 		sum.Reset()
+		buf.Reset()
 	}
 	log.Printf("%d bytes read in %s (%d packets)", total, time.Since(w), count)
 }

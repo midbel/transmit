@@ -130,7 +130,7 @@ func runMerge(cmd *cli.Command, args []string) error {
 		if k == nil {
 			continue
 		}
-		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, k.Length, k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
+		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, len(c.Payload), k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
 		delete(when, c.Key)
 		if w, ok := ws[k.Port]; ok {
 			if _, err := w.Write(k.Payload); err != nil {

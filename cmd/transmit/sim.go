@@ -59,6 +59,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				if *alea {
 					z = random.Int63n(z)
 				}
+				time.Sleep(*every)
 				n, err := io.CopyN(c, r, z)
 				if err != nil {
 					break
@@ -66,7 +67,6 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				sum += n
 				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, n, s.Sum(nil))
 				s.Reset()
-				time.Sleep(*every)
 			}
 			c.Close()
 			log.Printf("%d bytes written in %s to %s", sum, time.Since(n), c.RemoteAddr())
