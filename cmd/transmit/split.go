@@ -240,6 +240,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		w := io.MultiWriter(buf, sum)
 
 		for j := 1; ; j++ {
+			// TODO: handle "special" case when packets size is equal to n
 			r, err := c.Read(bs)
 			if r == 0 {
 				return
@@ -262,7 +263,6 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 			}
 		}
 		sum.Reset()
-		buf.Reset()
 	}
 	log.Printf("%d bytes read in %s (%d packets)", total, time.Since(w), count)
 }
