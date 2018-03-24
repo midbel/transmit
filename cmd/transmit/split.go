@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"github.com/midbel/transmit"
+	"golang.org/x/sys/unix"
 )
 
 type Block struct {
@@ -228,24 +230,38 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// TODO: try to create the chunk here instead of in the splitter
 	defer c.Close()
+	var f *os.File
 	if c, ok := c.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
+		file, err := c.File()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		f = file
+		defer f.Close()
 	}
 
 	sum, w := md5.New(), time.Now()
 	var count, total int
 
-	for i, buf := 0, new(bytes.Buffer); ; i++ {
+	for i, buf := 1, new(bytes.Buffer); ; i++ {
 		bs := make([]byte, n)
 		w := io.MultiWriter(buf, sum)
 
 		for j := 1; ; j++ {
 			// TODO: handle "special" case when packets size is equal to n
 			r, err := c.Read(bs)
-			if r == 0 {
+			if r == 0 || err == io.EOF {
 				return
 			}
 			w.Write(bs[:r])
+			rest := -1
+			if f != nil {
+				if rest, err = unix.IoctlGetInt(int(f.Fd()), unix.SIOCINQ); err == nil && rest == 0 {
+					break
+				}
+			}
 			if r < n || err != nil {
 				break
 			}
