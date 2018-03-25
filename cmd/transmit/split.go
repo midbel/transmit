@@ -68,6 +68,7 @@ type SplitOptions struct {
 }
 
 type splitter struct {
+	logger  *log.Logger
 	dtstamp time.Time
 	conns   []net.Conn
 
@@ -81,6 +82,7 @@ type splitter struct {
 
 func Split(a string, n, s int, k Limiter) (*splitter, error) {
 	wc := splitter{
+		logger:  log.New(os.Stderr, "[send] ", log.Ltime),
 		dtstamp: time.Now(),
 		conns:   make([]net.Conn, n),
 		writers: make([]io.Writer, n),
@@ -135,7 +137,7 @@ func (s *splitter) Split(b *Block) error {
 			return err
 		}
 	}
-	log.Printf("%6d | %6d | %9d | %x | %16s | %16s", seq, count, len(b.Payload), b.Sum, time.Since(t), time.Since(s.dtstamp))
+	s.logger.Printf("%6d | %6d | %9d | %x | %16s | %16s", seq, count, len(b.Payload), b.Sum, time.Since(t), time.Since(s.dtstamp))
 	return nil
 }
 
@@ -230,43 +232,46 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// TODO: try to create the chunk here instead of in the splitter
 	defer c.Close()
-	var f *os.File
+
+	var fd int
 	if c, ok := c.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
-		file, err := c.File()
-		if err != nil {
-			log.Println(err)
+		if file, err := c.File(); err == nil {
+			fd = int(file.Fd())
+			defer file.Close()
+		} else {
 			return
 		}
-		f = file
-		defer f.Close()
 	}
+	logger := log.New(os.Stderr, "[recv] ", log.Ltime)
 
-	sum, w := md5.New(), time.Now()
-	var count, total int
-
-	for i, buf := 1, new(bytes.Buffer); ; i++ {
-		bs := make([]byte, n)
+	sum, buf, now := md5.New(), new(bytes.Buffer), time.Now()
+	for i, bs := 1, make([]byte, n); ; i++ {
+		// bs := make([]byte, n)
 		w := io.MultiWriter(buf, sum)
 
+		b := time.Now()
 		for j := 1; ; j++ {
 			// TODO: handle "special" case when packets size is equal to n
 			r, err := c.Read(bs)
-			if r == 0 || err == io.EOF {
+			if r == 0 || err != nil {
 				return
 			}
+			rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ)
 			w.Write(bs[:r])
-			rest := -1
-			if f != nil {
-				if rest, err = unix.IoctlGetInt(int(f.Fd()), unix.SIOCINQ); err == nil && rest == 0 {
-					break
-				}
-			}
-			if r < n || err != nil {
+			ps := make([]byte, 16)
+			_, _, perr := unix.Recvfrom(fd, ps, unix.MSG_PEEK)
+
+			logger.Printf("%6d | %6d | %12s | %v | %6d | %6d | %9d | %x | %x", i, j, time.Since(b), perr, r, rest, buf.Len(), ps[:8], bs[:8])
+			if r < n {
 				break
 			}
+			if rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ); rest == 0 {
+				// break
+			}
 		}
-		total, count = total+buf.Len(), i+1
+		logger.Println("================")
+		logger.Printf("%6d | %9d | %x | %24s | %24s", i, buf.Len(), sum.Sum(nil), time.Since(b), time.Since(now))
 		if buf.Len() > 0 {
 			b := &Block{
 				Id:      uint16(i),
@@ -280,5 +285,4 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		}
 		sum.Reset()
 	}
-	log.Printf("%d bytes read in %s (%d packets)", total, time.Since(w), count)
 }
