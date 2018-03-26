@@ -2,17 +2,45 @@ package main
 
 import (
 	"crypto/md5"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	random "math/rand"
+	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/midbel/cli"
 	"github.com/midbel/rustine/rw"
 )
+
+type SizeArray struct {
+	curr   int
+	Values []cli.Size
+}
+
+func (s *SizeArray) String() string {
+	return fmt.Sprint(*s)
+}
+
+func (s *SizeArray) Set(v string) error {
+	for _, n := range strings.Split(v, ",") {
+		v, err := cli.ParseSize(n)
+		if err != nil {
+			return err
+		}
+		s.Values = append(s.Values, v)
+	}
+	return nil
+}
+
+func (s *SizeArray) Next() cli.Size {
+	v := s.Values[s.curr]
+	s.curr = (s.curr + 1) % len(s.Values)
+	return v
+}
 
 const DefaultSize = 1024
 
@@ -43,6 +71,10 @@ func runSimulate(cmd *cli.Command, args []string) error {
 		}
 		wg.Add(1)
 		go func(c net.Conn) {
+			if c, ok := c.(*net.TCPConn); ok {
+				c.SetWriteBuffer(128 * 1024)
+				c.SetNoDelay(false)
+			}
 			var reader io.Reader
 			if *zero {
 				reader = rw.Zero(int(size.Int()))
@@ -57,7 +89,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			for i := 0; *count <= 0 || i < *count; i++ {
 				z := size.Int()
 				if *alea {
-					z = random.Int63n(z)
+					z = rand.Int63n(z)
 				}
 				time.Sleep(*every)
 				n, err := io.CopyN(c, r, z)

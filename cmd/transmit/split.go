@@ -18,7 +18,6 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"github.com/midbel/transmit"
-	"golang.org/x/sys/unix"
 )
 
 type Block struct {
@@ -206,6 +205,8 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 		} else {
 			port = uint(p)
 		}
+	} else {
+		defer os.Remove(local)
 	}
 	ws, err := Split(remote, s.Count, int(s.Block.Int()), s.Limiter)
 	if err != nil {
@@ -232,6 +233,7 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 			}
 		}()
 	case "udp":
+		// TODO: write a dedicated handle function to deal with UDP connection
 		a, err := net.ResolveUDPAddr(s.Proto, local)
 		if err != nil {
 			return err
@@ -257,19 +259,10 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 
 func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// TODO: try to create the chunk here instead of in the splitter
+	// TODO: put handle in its own type with a logger that can log in ioutil.Discard or syslog
+	// NOTE: Block type could have a Chunks() function that return a slice of Chunk
 	defer c.Close()
 
-	var fd int
-	if c, ok := c.(*net.TCPConn); ok {
-		c.SetKeepAlive(true)
-		// c.SetReadBuffer(256*1024)
-		if file, err := c.File(); err == nil {
-			fd = int(file.Fd())
-			defer file.Close()
-		} else {
-			return
-		}
-	}
 	logger := log.New(os.Stderr, "[recv] ", log.Ltime)
 
 	sum, buf, now := md5.New(), new(bytes.Buffer), time.Now()
@@ -284,9 +277,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 				return
 			}
 			w.Write(bs[:r])
-
-			rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ)
-			logger.Printf("%6d | %6d | %12s | %v | %6d | %6d | %9d | %x", i, j, time.Since(b), err, r, rest, buf.Len(), bs[:16])
+			logger.Printf("%6d | %6d | %12s | %v | read: %6d | buffer: %9d | %x", i, j, time.Since(b), err, r, buf.Len(), bs[:16])
 			if r < n {
 				break
 			}
