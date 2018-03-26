@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
+	"fmt"
 	"hash/adler32"
 	"io"
 	"log"
@@ -65,6 +66,7 @@ type SplitOptions struct {
 	Length cli.Size
 	Block  cli.Size
 	Count  int
+	Proto  string
 }
 
 type splitter struct {
@@ -174,6 +176,7 @@ func runSplit(cmd *cli.Command, args []string) error {
 	cmd.Flag.IntVar(&s.Count, "n", 4, "count")
 	cmd.Flag.BoolVar(&s.Keep, "k", false, "keep")
 	cmd.Flag.BoolVar(&s.Syst, "y", false, "system")
+	cmd.Flag.StringVar(&s.Proto, "p", "tcp", "protocol")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -192,34 +195,57 @@ func runSplit(cmd *cli.Command, args []string) error {
 }
 
 func listenAndSplit(local, remote string, s SplitOptions) error {
-	_, p, err := net.SplitHostPort(local)
-	if err != nil {
-		return err
-	}
-	port, err := strconv.ParseUint(p, 10, 16)
-	if err != nil {
-		return err
-	}
-	a, err := net.Listen("tcp", local)
-	if err != nil {
-		return err
-	}
-	defer a.Close()
-
-	queue := make(chan *Block, 1000)
-	go func() {
-		for {
-			c, err := a.Accept()
-			if err != nil {
-				return
-			}
-			go handle(c, uint16(port), int(s.Length.Int()), queue)
+	var port uint
+	if s.Proto == "tcp" || s.Proto == "udp" {
+		_, p, err := net.SplitHostPort(local)
+		if err != nil {
+			return err
 		}
-	}()
-
+		if p, err := strconv.ParseUint(p, 10, 16); err != nil {
+			return err
+		} else {
+			port = uint(p)
+		}
+	}
 	ws, err := Split(remote, s.Count, int(s.Block.Int()), s.Limiter)
 	if err != nil {
 		return err
+	}
+	defer ws.Close()
+
+	queue := make(chan *Block, 1000)
+	switch s.Proto {
+	case "tcp", "unix":
+		a, err := net.Listen(s.Proto, local)
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		go func() {
+			for {
+				c, err := a.Accept()
+				if err != nil {
+					return
+				}
+				go handle(c, uint16(port), int(s.Length.Int()), queue)
+			}
+		}()
+	case "udp":
+		a, err := net.ResolveUDPAddr(s.Proto, local)
+		if err != nil {
+			return err
+		}
+		c, err := net.ListenUDP(s.Proto, a)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		queue := make(chan *Block, 1000)
+		go handle(c, uint16(port), int(s.Length.Int()), queue)
+	default:
+		return fmt.Errorf("unsupported protocol %q", s.Proto)
 	}
 	for bs := range queue {
 		if err := ws.Split(bs); err != nil {
@@ -236,6 +262,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	var fd int
 	if c, ok := c.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
+		// c.SetReadBuffer(256*1024)
 		if file, err := c.File(); err == nil {
 			fd = int(file.Fd())
 			defer file.Close()
@@ -247,7 +274,6 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 
 	sum, buf, now := md5.New(), new(bytes.Buffer), time.Now()
 	for i, bs := 1, make([]byte, n); ; i++ {
-		// bs := make([]byte, n)
 		w := io.MultiWriter(buf, sum)
 
 		b := time.Now()
@@ -257,17 +283,12 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 			if r == 0 || err != nil {
 				return
 			}
-			rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ)
 			w.Write(bs[:r])
-			ps := make([]byte, 16)
-			_, _, perr := unix.Recvfrom(fd, ps, unix.MSG_PEEK)
 
-			logger.Printf("%6d | %6d | %12s | %v | %6d | %6d | %9d | %x | %x", i, j, time.Since(b), perr, r, rest, buf.Len(), ps[:8], bs[:8])
+			rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ)
+			logger.Printf("%6d | %6d | %12s | %v | %6d | %6d | %9d | %x", i, j, time.Since(b), err, r, rest, buf.Len(), bs[:16])
 			if r < n {
 				break
-			}
-			if rest, _ := unix.IoctlGetInt(fd, unix.SIOCINQ); rest == 0 {
-				// break
 			}
 		}
 		logger.Println("================")
