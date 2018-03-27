@@ -2,13 +2,13 @@ package main
 
 import (
 	"crypto/md5"
-	"fmt"
+	"encoding/hex"
 	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
-	"strings"
+	"os"
 	"sync"
 	"time"
 
@@ -16,33 +16,31 @@ import (
 	"github.com/midbel/rustine/rw"
 )
 
-type SizeArray struct {
-	curr   int
-	Values []cli.Size
-}
+const DefaultSize = 1024
 
-func (s *SizeArray) String() string {
-	return fmt.Sprint(*s)
-}
-
-func (s *SizeArray) Set(v string) error {
-	for _, n := range strings.Split(v, ",") {
-		v, err := cli.ParseSize(n)
+func runDumper(cmd *cli.Command, args []string) error {
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+	c, err := net.Listen("tcp", cmd.Flag.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	w := hex.Dumper(os.Stdout)
+	for {
+		c, err := c.Accept()
 		if err != nil {
 			return err
 		}
-		s.Values = append(s.Values, v)
+		if c, ok := c.(*net.TCPConn); ok {
+			c.SetKeepAlive(true)
+		}
+		defer c.Close()
+		go io.Copy(w, c)
 	}
 	return nil
 }
-
-func (s *SizeArray) Next() cli.Size {
-	v := s.Values[s.curr]
-	s.curr = (s.curr + 1) % len(s.Values)
-	return v
-}
-
-const DefaultSize = 1024
 
 func runSimulate(cmd *cli.Command, args []string) error {
 	size := cli.Size(4096)

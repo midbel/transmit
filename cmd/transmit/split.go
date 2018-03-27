@@ -25,6 +25,7 @@ type Block struct {
 	Sum     []byte
 	Payload []byte
 	Port    uint16
+	Addr    *net.TCPAddr
 }
 
 func (b *Block) Chunks() []*Chunk {
@@ -116,6 +117,8 @@ func (s *splitter) Split(b *Block) error {
 
 		w := new(bytes.Buffer)
 		w.Write(b.Sum)
+		w.Write(b.Addr.IP.To16())
+		binary.Write(w, binary.BigEndian, uint16(b.Addr.Port))
 		binary.Write(w, binary.BigEndian, b.Port)
 		binary.Write(w, binary.BigEndian, seq)
 		binary.Write(w, binary.BigEndian, uint16(i))
@@ -263,38 +266,28 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// NOTE: Block type could have a Chunks() function that return a slice of Chunk
 	defer c.Close()
 
+	addr := c.RemoteAddr().(*net.TCPAddr)
 	logger := log.New(os.Stderr, "[recv] ", log.Ltime)
 
-	sum, buf, now := md5.New(), new(bytes.Buffer), time.Now()
+	sum, now := md5.New(), time.Now()
+	r := io.TeeReader(c, sum)
 	for i, bs := 1, make([]byte, n); ; i++ {
-		w := io.MultiWriter(buf, sum)
+		w := time.Now()
+		c, err := r.Read(bs)
+		if c == 0 || err != nil {
+			return
+		}
+		logger.Printf("%16s | %6d | %9d | %x | %24s | %24s", addr, i, c, sum.Sum(nil), time.Since(w), time.Since(now))
 
-		b := time.Now()
-		for j := 1; ; j++ {
-			// TODO: handle "special" case when packets size is equal to n
-			r, err := c.Read(bs)
-			if r == 0 || err != nil {
-				return
-			}
-			w.Write(bs[:r])
-			logger.Printf("%6d | %6d | %12s | %v | read: %6d | buffer: %9d | %x", i, j, time.Since(b), err, r, buf.Len(), bs[:16])
-			if r < n {
-				break
-			}
+		b := &Block{
+			Id:      uint16(i),
+			Sum:     sum.Sum(nil),
+			Port:    p,
+			Addr:    addr,
+			Payload: make([]byte, c),
 		}
-		logger.Println("================")
-		logger.Printf("%6d | %9d | %x | %24s | %24s", i, buf.Len(), sum.Sum(nil), time.Since(b), time.Since(now))
-		if buf.Len() > 0 {
-			b := &Block{
-				Id:      uint16(i),
-				Sum:     sum.Sum(nil),
-				Port:    p,
-				Payload: make([]byte, buf.Len()),
-			}
-			if _, err := io.ReadFull(buf, b.Payload); err == nil {
-				queue <- b
-			}
-		}
+		copy(b.Payload, bs[:c])
+		queue <- b
 		sum.Reset()
 	}
 }

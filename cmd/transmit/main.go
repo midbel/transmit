@@ -29,6 +29,11 @@ Use {{.Name}} [command] -h for more information about its usage.
 
 var commands = []*cli.Command{
 	{
+		Run:   runDumper,
+		Usage: "dump <host:port>",
+		Short: "dump packets received like hexdump -C -v",
+	},
+	{
 		Run:   runSimulate,
 		Usage: "simulate [-q] [-r] [-e] [-c] [-s] [-p] <host:port...>",
 		Short: "generate random packets and send them to the specify addresses",

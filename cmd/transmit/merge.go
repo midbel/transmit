@@ -33,10 +33,29 @@ type Chunk struct {
 	Roll    uint32
 }
 
-type Key struct {
-	Id   uint32
+type nat struct {
+	Addr string
 	Port uint16
-	Sum  [md5.Size]byte
+}
+
+type Key struct {
+	Id  uint32
+	Dst uint16
+	IP  [net.IPv6len]byte
+	Src uint16
+	Sum [md5.Size]byte
+}
+
+func (k Key) Route() interface{} {
+	addr := &net.TCPAddr{IP: net.IP(k.IP[:]), Port: int(k.Src)}
+	v := struct {
+		Port uint16
+		Addr string
+	}{
+		Port: k.Dst,
+		Addr: addr.String(),
+	}
+	return v
 }
 
 func (k Key) Equal(s []byte) bool {
@@ -101,7 +120,8 @@ func runMerge(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	ws := make(map[uint16]net.Conn)
+	ws := make(map[uint16]net.Addr)
+	cs := make(map[interface{}]net.Conn)
 	for i := 1; i < cmd.Flag.NArg(); i++ {
 		c, err := transmit.Proxy(cmd.Flag.Arg(i), nil)
 		if err != nil {
@@ -109,7 +129,7 @@ func runMerge(cmd *cli.Command, args []string) error {
 		}
 		defer c.Close()
 		a := c.RemoteAddr().(*net.TCPAddr)
-		ws[uint16(a.Port)] = c
+		ws[uint16(a.Port)] = a
 	}
 	queue, err := listenAndMerge(cmd.Flag.Arg(0))
 	if err != nil {
@@ -124,7 +144,6 @@ func runMerge(cmd *cli.Command, args []string) error {
 		}
 		k, err := m.Merge(c)
 		if err != nil {
-			log.Println(err)
 			continue
 		}
 		if k == nil {
@@ -132,7 +151,17 @@ func runMerge(cmd *cli.Command, args []string) error {
 		}
 		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, len(c.Payload), k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
 		delete(when, c.Key)
-		if w, ok := ws[k.Port]; ok {
+		if a, ok := ws[k.Key.Dst]; ok {
+			n := k.Route()
+			w, ok := cs[n]
+			if !ok {
+				c, err := net.Dial(a.Network(), a.String())
+				if err != nil {
+					continue
+				}
+				cs[n] = c
+				w = c
+			}
 			if _, err := w.Write(k.Payload); err != nil {
 				log.Println(err)
 			}
@@ -181,10 +210,14 @@ func listenAndMerge(a string) (<-chan *Chunk, error) {
 
 func decodeChunk(r io.Reader) (*Chunk, error) {
 	c := new(Chunk)
-	if _, err := io.ReadFull(r, c.Key.Sum[:]); err != nil {
+	if _, err := io.ReadFull(r, c.Sum[:]); err != nil {
 		return nil, err
 	}
-	binary.Read(r, binary.BigEndian, &c.Port)
+	if _, err := io.ReadFull(r, c.IP[:]); err != nil {
+		return nil, err
+	}
+	binary.Read(r, binary.BigEndian, &c.Src)
+	binary.Read(r, binary.BigEndian, &c.Dst)
 	binary.Read(r, binary.BigEndian, &c.Id)
 	binary.Read(r, binary.BigEndian, &c.Frag)
 	binary.Read(r, binary.BigEndian, &c.Count)
