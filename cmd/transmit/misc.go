@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"os"
 	"sync"
@@ -85,11 +84,11 @@ func dumpPackets(c net.Conn) {
 }
 
 func runSimulate(cmd *cli.Command, args []string) error {
-	size := cli.Size(4096)
+	var size cli.MultiSize
 	cmd.Flag.Var(&size, "s", "write packets of size byts to group")
+	cmd.Flag.BoolVar(&size.Alea, "r", false, "write packets of random size with upper limit set to to size")
 	every := cmd.Flag.Duration("e", time.Second, "write a packet every given elapsed interval")
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
-	alea := cmd.Flag.Bool("r", false, "write packets of random size with upper limit set to to size")
 	quiet := cmd.Flag.Bool("q", false, "suppress write debug information on stderr")
 	zero := cmd.Flag.Bool("z", false, "fill packets only with zero")
 	proto := cmd.Flag.String("p", "tcp", "protocol")
@@ -127,9 +126,6 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			r, buf := io.TeeReader(reader, s), new(bytes.Buffer)
 			for i := 0; *count <= 0 || i < *count; i++ {
 				z := size.Int()
-				if *alea {
-					z = rand.Int63n(z)
-				}
 				time.Sleep(*every)
 				binary.Write(buf, binary.BigEndian, int64(z))
 				binary.Write(buf, binary.BigEndian, uint32(i))
