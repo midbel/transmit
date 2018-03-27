@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"io/ioutil"
@@ -19,6 +21,8 @@ import (
 const DefaultSize = 1024
 
 func runDumper(cmd *cli.Command, args []string) error {
+	// file := cmd.Flag.String("w", "", "file")
+	debug := cmd.Flag.Bool("x", false, "hexdump")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -36,10 +40,48 @@ func runDumper(cmd *cli.Command, args []string) error {
 		if c, ok := c.(*net.TCPConn); ok {
 			c.SetKeepAlive(true)
 		}
-		defer c.Close()
-		go io.Copy(w, c)
+		if *debug {
+			go io.Copy(w, c)
+		} else {
+			go dumpPackets(c)
+		}
 	}
 	return nil
+}
+
+func dumpPackets(c net.Conn) {
+	defer func() {
+		c.Close()
+		if err := recover(); err != nil {
+			log.Println(err)
+		}
+	}()
+	var (
+		size int64
+		seq  uint32
+		port uint16
+		bs   []byte
+	)
+	sum := md5.New()
+	r, w := io.TeeReader(c, sum), time.Now()
+
+	var total, count uint64
+	for n := time.Now(); ; n = time.Now() {
+		binary.Read(r, binary.BigEndian, &size)
+		binary.Read(r, binary.BigEndian, &seq)
+		binary.Read(r, binary.BigEndian, &port)
+		bs = make([]byte, int(size))
+		if n, err := io.ReadFull(r, bs); err != nil || n == 0 {
+			break
+		}
+		total += uint64(size) + 14
+		count++
+		log.Printf("%s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), size, seq, port, sum.Sum(nil), time.Since(n), time.Since(w))
+		sum.Reset()
+	}
+	elapsed := time.Since(w)
+	volume := float64(total) / 1024
+	log.Printf("%d packets read %s (%.2fKB, %.2f Mbps)", count, elapsed, volume, ((volume/1024)*8)/elapsed.Seconds())
 }
 
 func runSimulate(cmd *cli.Command, args []string) error {
@@ -70,7 +112,6 @@ func runSimulate(cmd *cli.Command, args []string) error {
 		wg.Add(1)
 		go func(c net.Conn) {
 			if c, ok := c.(*net.TCPConn); ok {
-				c.SetWriteBuffer(128 * 1024)
 				c.SetNoDelay(false)
 			}
 			var reader io.Reader
@@ -79,23 +120,28 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			} else {
 				reader = rw.Rand()
 			}
-			var sum int64
-			n := time.Now()
 			log.Printf("start writing packets to %s", c.RemoteAddr())
-			s := md5.New()
-			r := io.TeeReader(reader, s)
+
+			var sum int64
+			s, n := md5.New(), time.Now()
+			r, buf := io.TeeReader(reader, s), new(bytes.Buffer)
 			for i := 0; *count <= 0 || i < *count; i++ {
 				z := size.Int()
 				if *alea {
 					z = rand.Int63n(z)
 				}
 				time.Sleep(*every)
-				n, err := io.CopyN(c, r, z)
-				if err != nil {
+				binary.Write(buf, binary.BigEndian, int64(z))
+				binary.Write(buf, binary.BigEndian, uint32(i))
+				binary.Write(buf, binary.BigEndian, uint16(0))
+				if _, err := io.CopyN(buf, r, z); err != nil {
 					break
 				}
-				sum += n
-				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, n, s.Sum(nil))
+				if _, err := io.Copy(c, buf); err != nil {
+					break
+				}
+				sum += z
+				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, z, s.Sum(nil))
 				s.Reset()
 			}
 			c.Close()
