@@ -164,6 +164,8 @@ func runMerge(cmd *cli.Command, args []string) error {
 			}
 			if _, err := w.Write(k.Payload); err != nil {
 				log.Println(err)
+				w.Close()
+				delete(cs, n)
 			}
 		}
 	}
