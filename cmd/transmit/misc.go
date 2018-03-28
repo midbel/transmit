@@ -13,8 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"github.com/midbel/rustine/rw"
+	"github.com/midbel/transmit"
 )
 
 const DefaultSize = 1024
@@ -61,22 +63,19 @@ func dumpPackets(c net.Conn) {
 		port uint16
 		bs   []byte
 	)
-	sum := md5.New()
-	r, w := io.TeeReader(c, sum), time.Now()
-
+	w := time.Now()
 	var total, count uint64
 	for n := time.Now(); ; n = time.Now() {
-		binary.Read(r, binary.BigEndian, &size)
-		binary.Read(r, binary.BigEndian, &seq)
-		binary.Read(r, binary.BigEndian, &port)
+		binary.Read(c, binary.BigEndian, &size)
+		binary.Read(c, binary.BigEndian, &seq)
+		binary.Read(c, binary.BigEndian, &port)
 		bs = make([]byte, int(size))
-		if n, err := io.ReadFull(r, bs); err != nil || n == 0 {
+		if n, err := io.ReadFull(c, bs); err != nil || n == 0 {
 			break
 		}
 		total += uint64(size) + 14
 		count++
-		log.Printf("%s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), size, seq, port, sum.Sum(nil), time.Since(n), time.Since(w))
-		sum.Reset()
+		log.Printf("%24s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), size, seq+1, port, md5.Sum(bs), time.Since(n), time.Since(w))
 	}
 	elapsed := time.Since(w)
 	volume := float64(total) / 1024
@@ -84,14 +83,19 @@ func dumpPackets(c net.Conn) {
 }
 
 func runSimulate(cmd *cli.Command, args []string) error {
-	var size cli.MultiSize
+	var (
+		size cli.MultiSize
+		rate cli.Size
+	)
 	cmd.Flag.Var(&size, "s", "write packets of size byts to group")
+	cmd.Flag.Var(&rate, "t", "rate limiting")
 	cmd.Flag.BoolVar(&size.Alea, "r", false, "write packets of random size with upper limit set to to size")
 	every := cmd.Flag.Duration("e", time.Second, "write a packet every given elapsed interval")
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
 	quiet := cmd.Flag.Bool("q", false, "suppress write debug information on stderr")
 	zero := cmd.Flag.Bool("z", false, "fill packets only with zero")
 	proto := cmd.Flag.String("p", "tcp", "protocol")
+	syst := cmd.Flag.Bool("y", false, "system clock")
 
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -110,8 +114,20 @@ func runSimulate(cmd *cli.Command, args []string) error {
 		}
 		wg.Add(1)
 		go func(c net.Conn) {
+			defer c.Close()
 			if c, ok := c.(*net.TCPConn); ok {
 				c.SetNoDelay(false)
+			}
+			var clock transmit.Clock
+			if *syst {
+				clock = transmit.SystemClock()
+			} else {
+				clock = transmit.RealClock()
+			}
+			var writer io.Writer = c
+			if r := rate.Float(); r > 0 {
+				b := ratelimit.NewBucketWithRateAndClock(r, int64(r), clock)
+				writer = ratelimit.Writer(writer, b)
 			}
 			var reader io.Reader
 			if *zero {
@@ -133,11 +149,12 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				if _, err := io.CopyN(buf, r, z); err != nil {
 					break
 				}
-				if _, err := io.Copy(c, buf); err != nil {
+				w := time.Now()
+				if _, err := io.Copy(writer, buf); err != nil {
 					break
 				}
 				sum += z
-				log.Printf("%s - %6d - %6d - %x", c.RemoteAddr(), i+1, z, s.Sum(nil))
+				log.Printf("%24s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), z, i+1, 0, s.Sum(nil), time.Since(w), time.Since(n))
 				s.Reset()
 			}
 			c.Close()

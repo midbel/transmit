@@ -276,6 +276,9 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		for buf.Len() < n {
 			c, err := r.Read(bs)
 			if c == 0 || err != nil {
+				if buf.Len() > 0 {
+					break
+				}
 				return
 			}
 			buf.Write(bs[:c])
