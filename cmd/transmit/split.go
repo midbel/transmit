@@ -267,34 +267,27 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	defer c.Close()
 
 	addr := c.RemoteAddr().(*net.TCPAddr)
-	logger := log.New(os.Stderr, "[recv] ", log.Ltime)
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", addr.String()), log.Ltime)
 
-	sum, now, buf := md5.New(), time.Now(), new(bytes.Buffer)
+	sum, now := md5.New(), time.Now()
 	r := io.TeeReader(c, sum)
 	for i, bs := 1, make([]byte, n); ; i++ {
 		w := time.Now()
-		for buf.Len() < n {
-			c, err := r.Read(bs)
-			if c == 0 || err != nil {
-				if buf.Len() > 0 {
-					break
-				}
-				return
-			}
-			buf.Write(bs[:c])
+		c, err := r.Read(bs)
+		if err != nil {
+			return
 		}
-		logger.Printf("%16s | %6d | %9d | %x | %24s | %24s", addr, i, buf.Len(), sum.Sum(nil), time.Since(w), time.Since(now))
+		logger.Printf("%6d | %9d | %x | %24s | %24s", i, c, sum.Sum(nil), time.Since(w), time.Since(now))
 
 		b := &Block{
 			Id:      uint16(i),
 			Sum:     sum.Sum(nil),
 			Port:    p,
 			Addr:    addr,
-			Payload: make([]byte, buf.Len()),
+			Payload: make([]byte, c),
 		}
-		if _, err := io.ReadFull(buf, b.Payload); err == nil {
-			queue <- b
-		}
+		copy(b.Payload, bs[:c])
+		queue <- b
 		sum.Reset()
 	}
 }

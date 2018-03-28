@@ -5,6 +5,8 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
+	"hash/adler32"
 	"io"
 	"io/ioutil"
 	"log"
@@ -58,27 +60,39 @@ func dumpPackets(c net.Conn) {
 		c.Close()
 	}()
 	var (
-		size int64
-		seq  uint32
-		port uint16
+		size  int64
+		port  uint16
+		seq   uint32
+		crc   uint32
+		total uint64
+		count uint64
 	)
-	w := time.Now()
-	var total, count uint64
+	w, roll := time.Now(), adler32.New()
+	r := io.TeeReader(c, roll)
+
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
 	for n := time.Now(); ; n = time.Now() {
-		binary.Read(c, binary.BigEndian, &size)
-		binary.Read(c, binary.BigEndian, &seq)
-		binary.Read(c, binary.BigEndian, &port)
+		binary.Read(r, binary.BigEndian, &size)
+		binary.Read(r, binary.BigEndian, &seq)
+		binary.Read(r, binary.BigEndian, &port)
+
 		bs := make([]byte, int(size))
-		if n, err := io.ReadFull(c, bs); err != nil || n == 0 {
+		if n, err := io.ReadFull(r, bs); err != nil || n == 0 {
 			break
+		}
+		got := roll.Sum32()
+		binary.Read(r, binary.BigEndian, &crc)
+		if crc != got {
+			return
 		}
 		total += uint64(size) + 14
 		count++
-		log.Printf("%24s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), size, seq+1, port, md5.Sum(bs), time.Since(n), time.Since(w))
+		logger.Printf("%9d | %6d | %6d | %x | %16s | %16s | %08x", size, seq+1, port, md5.Sum(bs), time.Since(n), time.Since(w), crc)
+		roll.Reset()
 	}
 	elapsed := time.Since(w)
 	volume := float64(total) / 1024
-	log.Printf("%d packets read %s (%.2fKB, %.2f Mbps)", count, elapsed, volume, ((volume/1024)*8)/elapsed.Seconds())
+	logger.Printf("%d packets read %s (%.2fKB, %.2f Mbps)", count, elapsed, volume, ((volume/1024)*8)/elapsed.Seconds())
 }
 
 func runSimulate(cmd *cli.Command, args []string) error {
@@ -130,36 +144,41 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			}
 			var reader io.Reader
 			if *zero {
-				reader = rw.Zero(int(size.Int()))
+				reader = rw.Zero(int(size.Sum()))
 			} else {
 				reader = rw.Rand()
 			}
-			log.Printf("start writing packets to %s", c.RemoteAddr())
+			logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
+			logger.Printf("start writing packets to %s", c.RemoteAddr())
 
 			var sum int64
 			s, n := md5.New(), time.Now()
 			r, buf := io.TeeReader(reader, s), new(bytes.Buffer)
 			for i := 0; *count <= 0 || i < *count; i++ {
-				z := size.Int()
 				time.Sleep(*every)
+
+				z := size.Int()
 				binary.Write(buf, binary.BigEndian, int64(z))
 				binary.Write(buf, binary.BigEndian, uint32(i))
 				binary.Write(buf, binary.BigEndian, uint16(0))
 				if _, err := io.CopyN(buf, r, z); err != nil {
 					break
 				}
+				crc := adler32.Checksum(buf.Bytes())
+				binary.Write(buf, binary.BigEndian, crc)
+
 				w := time.Now()
 				if _, err := io.Copy(writer, buf); err != nil {
 					break
 				}
 				sum += z
-				log.Printf("%24s | %9d | %6d | %6d | %x | %16s | %16s", c.RemoteAddr(), z, i+1, 0, s.Sum(nil), time.Since(w), time.Since(n))
+				logger.Printf("%9d | %6d | %6d | %x | %16s | %16s | %08x", z, i+1, 0, s.Sum(nil), time.Since(w), time.Since(n), crc)
 				s.Reset()
+				buf.Reset()
 			}
 			c.Close()
-			log.Printf("%d bytes written in %s to %s", sum, time.Since(n), c.RemoteAddr())
-
 			wg.Done()
+			logger.Printf("%d bytes written in %s to %s", sum, time.Since(n), c.RemoteAddr())
 		}(c)
 	}
 	wg.Wait()
