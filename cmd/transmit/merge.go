@@ -117,6 +117,7 @@ func (m *merger) Merge(c *Chunk) (*Chunk, error) {
 }
 
 func runMerge(cmd *cli.Command, args []string) error {
+	discard := cmd.Flag.Bool("d", false, "discard")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -151,7 +152,7 @@ func runMerge(cmd *cli.Command, args []string) error {
 		}
 		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, len(c.Payload), k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
 		delete(when, c.Key)
-		if a, ok := ws[k.Key.Dst]; ok {
+		if a, ok := ws[k.Key.Dst]; ok && !*discard {
 			n := k.Route()
 			w, ok := cs[n]
 			if !ok {

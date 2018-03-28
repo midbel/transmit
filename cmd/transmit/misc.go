@@ -52,16 +52,15 @@ func runDumper(cmd *cli.Command, args []string) error {
 
 func dumpPackets(c net.Conn) {
 	defer func() {
-		c.Close()
 		if err := recover(); err != nil {
 			log.Println(err)
 		}
+		c.Close()
 	}()
 	var (
 		size int64
 		seq  uint32
 		port uint16
-		bs   []byte
 	)
 	w := time.Now()
 	var total, count uint64
@@ -69,7 +68,7 @@ func dumpPackets(c net.Conn) {
 		binary.Read(c, binary.BigEndian, &size)
 		binary.Read(c, binary.BigEndian, &seq)
 		binary.Read(c, binary.BigEndian, &port)
-		bs = make([]byte, int(size))
+		bs := make([]byte, int(size))
 		if n, err := io.ReadFull(c, bs); err != nil || n == 0 {
 			break
 		}
