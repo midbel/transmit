@@ -265,6 +265,9 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	// TODO: put handle in its own type with a logger that can log in ioutil.Discard or syslog
 	// NOTE: Block type could have a Chunks() function that return a slice of Chunk
 	defer c.Close()
+	if n <= cli.Kilo {
+		n = cli.Kilo*4
+	}
 
 	addr := c.RemoteAddr().(*net.TCPAddr)
 	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", addr.String()), log.Ltime)
@@ -273,8 +276,8 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 	r := io.TeeReader(c, sum)
 	for i, bs := 1, make([]byte, n); ; i++ {
 		w := time.Now()
-		c, err := r.Read(bs)
-		if err != nil {
+		c, err := io.ReadFull(r, bs)
+		if err != nil && err != io.EOF {
 			return
 		}
 		logger.Printf("%6d | %9d | %x | %24s | %24s", i, c, sum.Sum(nil), time.Since(w), time.Since(now))
@@ -288,6 +291,9 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		}
 		copy(b.Payload, bs[:c])
 		queue <- b
+		if err == io.EOF {
+			return
+		}
 		sum.Reset()
 	}
 }
