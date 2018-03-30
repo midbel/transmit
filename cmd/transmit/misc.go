@@ -59,6 +59,8 @@ func dumpPackets(c net.Conn) {
 		}
 		c.Close()
 	}()
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
+
 	var (
 		size  int64
 		port  uint16
@@ -67,10 +69,23 @@ func dumpPackets(c net.Conn) {
 		total uint64
 		count uint64
 	)
+	// w, roll, aggr := time.Now(), adler32.New(), new(bytes.Buffer)
+	// r := io.TeeReader(c, io.MultiWriter(roll, aggr))
 	w, roll := time.Now(), adler32.New()
 	r := io.TeeReader(c, roll)
+	// go func() {
+	// 	var total uint64
+	// 	for range time.Tick(time.Second) {
+	// 		size, delta := aggr.Len(), time.Since(w)
+	// 		if size == 0 {
+	// 			continue
+	// 		}
+	// 		total += uint64(size)
+	// 		logger.Printf("> %9.2fMbps - %9.2fMbps", (float64(total)*8)/delta.Seconds()/cli.Mega, (float64(size)*8)/float64(cli.Mega))
+	// 		aggr.Reset()
+	// 	}
+	// }()
 
-	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
 	for n := time.Now(); ; n = time.Now() {
 		binary.Read(r, binary.BigEndian, &size)
 		binary.Read(r, binary.BigEndian, &seq)
