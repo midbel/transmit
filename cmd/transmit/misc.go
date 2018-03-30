@@ -36,17 +36,17 @@ func runDumper(cmd *cli.Command, args []string) error {
 	defer c.Close()
 	w := hex.Dumper(os.Stdout)
 	for {
-		c, err := c.Accept()
+		a, err := c.Accept()
 		if err != nil {
 			return err
 		}
-		if c, ok := c.(*net.TCPConn); ok {
+		if c, ok := a.(*net.TCPConn); ok {
 			c.SetKeepAlive(true)
 		}
 		if *debug {
-			go io.Copy(w, c)
+			go io.Copy(w, a)
 		} else {
-			go dumpPackets(c)
+			go dumpPackets(a)
 		}
 	}
 	return nil

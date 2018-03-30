@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/md5"
 	"encoding/binary"
 	"errors"
@@ -23,6 +24,71 @@ var (
 	ErrRollSum  = errors.New("rolling checksum mismatched")
 	ErrChecksum = errors.New("md5 checksum mismatched")
 )
+
+type ChunkQueue []*Chunk
+
+func (q *ChunkQueue) Push(v interface{}) {
+	c, ok := v.(*Chunk)
+	if !ok {
+		return
+	}
+	*q = append(*q, c)
+}
+
+func (q *ChunkQueue) Pop() interface{} {
+	if len(*q) == 0 {
+		return nil
+	}
+	cs := *q
+	c := cs[len(cs)-1]
+	*q = cs[:len(cs)-1]
+
+	return c
+}
+
+func (q ChunkQueue) Len() int {
+	return len(q)
+}
+
+func (q ChunkQueue) Less(i, j int) bool {
+	return q[i].Id <= q[j].Id
+}
+
+func (q ChunkQueue) Swap(i, j int) {
+	q[i], q[j] = q[j], q[i]
+}
+
+type Buffer struct {
+	next   uint32
+	chunks ChunkQueue
+}
+
+func (b *Buffer) Pop() *Chunk {
+	if b.chunks.Len() == 0 {
+		return nil
+	}
+	x := heap.Pop(&b.chunks)
+	if x == nil {
+		return nil
+	}
+	c := x.(*Chunk)
+	if c.Id == b.next {
+		b.next = c.Id + 1
+		return c
+	}
+	heap.Push(&b.chunks, c)
+	return nil
+}
+
+func (b *Buffer) Push(c *Chunk) {
+	heap.Push(&b.chunks, c)
+}
+
+func NewBuffer() *Buffer {
+	q := make(ChunkQueue, 0, 100)
+	heap.Init(&q)
+	return &Buffer{next: 1, chunks: q}
+}
 
 type Chunk struct {
 	Key
@@ -139,6 +205,8 @@ func runMerge(cmd *cli.Command, args []string) error {
 	m := Merge()
 	when := make(map[Key]time.Time)
 	dtstamp := time.Now()
+
+	pq := NewBuffer()
 	for c := range queue {
 		if _, ok := when[c.Key]; !ok {
 			when[c.Key] = time.Now()
@@ -150,8 +218,12 @@ func runMerge(cmd *cli.Command, args []string) error {
 		if k == nil {
 			continue
 		}
+		pq.Push(k)
+		if k = pq.Pop(); k == nil {
+			continue
+		}
 		log.Printf("%6d | %6d | %9d | %x | %16s | %16s", k.Id, k.Count, len(c.Payload), k.Sum, time.Since(when[c.Key]), time.Since(dtstamp))
-		delete(when, c.Key)
+		delete(when, k.Key)
 		if a, ok := ws[k.Key.Dst]; ok && !*discard {
 			n := k.Route()
 			w, ok := cs[n]
@@ -164,7 +236,6 @@ func runMerge(cmd *cli.Command, args []string) error {
 				w = c
 			}
 			if _, err := w.Write(k.Payload); err != nil {
-				log.Println(err)
 				w.Close()
 				delete(cs, n)
 			}
@@ -179,7 +250,7 @@ func listenAndMerge(a string) (<-chan *Chunk, error) {
 		return nil, err
 	}
 
-	queue := make(chan *Chunk, 1000)
+	queue := make(chan *Chunk)
 	go func() {
 		defer func() {
 			close(queue)
