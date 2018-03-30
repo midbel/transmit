@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/midbel/cli"
-	"github.com/midbel/transmit"
 )
 
 var (
@@ -190,12 +189,10 @@ func runMerge(cmd *cli.Command, args []string) error {
 	ws := make(map[uint16]net.Addr)
 	cs := make(map[interface{}]net.Conn)
 	for i := 1; i < cmd.Flag.NArg(); i++ {
-		c, err := transmit.Proxy(cmd.Flag.Arg(i), nil)
+		a, err := net.ResolveTCPAddr("tcp", cmd.Flag.Arg(i))
 		if err != nil {
 			return err
 		}
-		defer c.Close()
-		a := c.RemoteAddr().(*net.TCPAddr)
 		ws[uint16(a.Port)] = a
 	}
 	queue, err := listenAndMerge(cmd.Flag.Arg(0))
