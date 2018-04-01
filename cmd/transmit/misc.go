@@ -25,7 +25,8 @@ const DefaultSize = 1024
 
 func runDumper(cmd *cli.Command, args []string) error {
 	// file := cmd.Flag.String("w", "", "file")
-	debug := cmd.Flag.Bool("x", false, "hexdump")
+	dump := cmd.Flag.Bool("x", false, "hexdump")
+	perf := cmd.Flag.Bool("p", false, "bandwidth")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -43,13 +44,57 @@ func runDumper(cmd *cli.Command, args []string) error {
 		if c, ok := a.(*net.TCPConn); ok {
 			c.SetKeepAlive(true)
 		}
-		if *debug {
+		if *dump {
 			go io.Copy(w, a)
+		} else if *perf {
+			go dumpStats(a)
 		} else {
 			go dumpPackets(a)
 		}
 	}
 	return nil
+}
+
+func dumpStats(c net.Conn) {
+	const megabits = cli.Mega * 8.0
+	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
+
+	w := new(bytes.Buffer)
+
+	now, total, avg := time.Now(), 0.0, 0.0
+	values := make([]float64, 10)
+	for i := 1; ; i++ {
+		c.SetReadDeadline(time.Now().Add(time.Second))
+		n, err := io.Copy(w, c)
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			size := float64(n) * 8
+			total += size
+
+			if i >= len(values) {
+				j := (i - len(values)) % len(values)
+				avg += (size - values[j]) / float64(i)
+			} else {
+				avg = 0.0
+				for _, v := range values {
+					avg += v
+				}
+				avg /= float64(len(values))
+			}
+			elapsed := time.Since(now)
+			values[(i-1)%len(values)] = size
+
+			logger.Printf("%18s | %6d | %9.2fMbps | %9.2fMbps | %9.2fMbps",
+				elapsed,
+				i,
+				size/megabits,
+				(total/megabits)/elapsed.Seconds(),
+				avg/megabits,
+			)
+			w.Reset()
+		} else {
+			return
+		}
+	}
 }
 
 func dumpPackets(c net.Conn) {
@@ -69,22 +114,8 @@ func dumpPackets(c net.Conn) {
 		total uint64
 		count uint64
 	)
-	// w, roll, aggr := time.Now(), adler32.New(), new(bytes.Buffer)
-	// r := io.TeeReader(c, io.MultiWriter(roll, aggr))
 	w, roll := time.Now(), adler32.New()
 	r := io.TeeReader(c, roll)
-	// go func() {
-	// 	var total uint64
-	// 	for range time.Tick(time.Second) {
-	// 		size, delta := aggr.Len(), time.Since(w)
-	// 		if size == 0 {
-	// 			continue
-	// 		}
-	// 		total += uint64(size)
-	// 		logger.Printf("> %9.2fMbps - %9.2fMbps", (float64(total)*8)/delta.Seconds()/cli.Mega, (float64(size)*8)/float64(cli.Mega))
-	// 		aggr.Reset()
-	// 	}
-	// }()
 
 	for n := time.Now(); ; n = time.Now() {
 		binary.Read(r, binary.BigEndian, &size)
