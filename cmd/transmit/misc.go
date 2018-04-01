@@ -66,6 +66,7 @@ func dumpStats(c net.Conn) {
 	for i := 1; ; i++ {
 		c.SetReadDeadline(time.Now().Add(time.Second))
 		n, err := io.Copy(w, c)
+		w.Reset()
 		if err, ok := err.(net.Error); ok && err.Timeout() {
 			size := float64(n) * 8
 			total += size
@@ -73,15 +74,17 @@ func dumpStats(c net.Conn) {
 			if i >= len(values) {
 				j := (i - len(values)) % len(values)
 				avg += (size - values[j]) / float64(i)
+
+				values[j] = size
 			} else {
 				avg = 0.0
 				for _, v := range values {
 					avg += v
 				}
 				avg /= float64(len(values))
+				values[(i-1)%len(values)] = size
 			}
 			elapsed := time.Since(now)
-			values[(i-1)%len(values)] = size
 
 			logger.Printf("%18s | %6d | %9.2fMbps | %9.2fMbps | %9.2fMbps",
 				elapsed,
@@ -90,9 +93,6 @@ func dumpStats(c net.Conn) {
 				(total/megabits)/elapsed.Seconds(),
 				avg/megabits,
 			)
-			w.Reset()
-		} else {
-			return
 		}
 	}
 }
