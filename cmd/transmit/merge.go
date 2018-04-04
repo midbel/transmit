@@ -20,6 +20,7 @@ import (
 )
 
 var (
+	ErrDone     = errors.New("done")
 	ErrRollSum  = errors.New("rolling checksum mismatched")
 	ErrChecksum = errors.New("md5 checksum mismatched")
 )
@@ -179,6 +180,44 @@ func (m *merger) Merge(c *Chunk) (*Chunk, error) {
 	}
 	m.when[c.Key], m.chunks[c.Key] = time.Now(), cs
 	return nil, nil
+}
+
+type forwarder struct {
+	addrs map[uint16]net.Addr
+	conns map[net.Addr]net.Conn
+}
+
+func Forward(as ...string) (*forwarder, error) {
+	f := &forwarder{
+		addrs: make(map[uint16]net.Addr),
+		conns: make(map[net.Addr]net.Conn),
+	}
+	for _, a := range as {
+		a, err := net.ResolveTCPAddr("tcp", a)
+		if err != nil {
+			return nil, err
+		}
+		f.addrs[uint16(a.Port)] = a
+	}
+	return f, nil
+}
+
+func (f *forwarder) Forward(b *Block) error {
+	a, ok := f.addrs[b.Port]
+	if !ok {
+		return fmt.Errorf("no route configued to %d", b.Port)
+	}
+	var err error
+	c, ok := f.conns[a]
+	if !ok {
+		c, err = net.Dial(a.Network(), a.String())
+		if err != nil {
+			return err
+		}
+		f.conns[a] = c
+	}
+	_, err = c.Write(b.Payload)
+	return err
 }
 
 func runMerge(cmd *cli.Command, args []string) error {
