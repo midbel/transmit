@@ -128,6 +128,82 @@ func (k Key) Equal(s []byte) bool {
 	return bytes.Equal(s, k.Sum[:])
 }
 
+// type merger struct {
+// 	mu     sync.Mutex
+// 	chunks map[Key][]*Chunk
+//
+// 	errors chan error
+// 	blocks chan *Block
+// }
+//
+// func Merge(a string) (*merger, error) {
+// 	c, err := net.Listen("tcp", a)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	m := &merger{}
+// 	return m, nil
+// }
+//
+// func (m *merger) Next() (*Block, error) {
+// 	select {
+// 	case b, ok := <-m.blocks:
+// 		if !ok {
+// 			break
+// 		}
+// 		return b, nil
+// 	case e, ok := <-m.errors:
+// 		if !ok {
+// 			break
+// 		}
+// 		return nil, e
+// 	}
+// 	return nil, ErrDone
+// }
+//
+// func (m *merger) build(k Key, cs []*Chunk) {
+// 	buf := new(bytes.Buffer)
+// 	roll, sum := adler32.New(), md5.New()
+// 	w := io.MultiWriter(buf, sum, roll)
+//
+// 	sort.Slice(cs, func(i, j int) bool {
+// 		return cs[i].Frag <= cs[j].Frag
+// 	})
+// 	for _, i := range cs {
+// 		w.Write(i.Payload)
+// 		if s := roll.Sum32(); s != i.Roll {
+// 			// return nil, ErrRollSum
+// 			return
+// 		}
+// 	}
+// 	if s := sum.Sum(nil); !k.Equal(s) {
+// 		// return nil, ErrChecksum
+// 		return
+// 	}
+// 	b := &Block{
+// 		Id:      k.Id,
+// 		Port:    k.Dst,
+// 		Sum:     k.Sum[:],
+// 		Payload: make([]byte, buf.Len()),
+// 	}
+// 	if _, err := io.ReadFull(buf, b.Payload); err != nil {
+// 		return
+// 	}
+// }
+//
+// func (m *merger) merge(c *Chunk) {
+// 	m.mu.Lock()
+// 	defer m.mu.Unlock()
+//
+// 	cs := append(m.chunks[c.Key], c)
+// 	if len(cs) >= int(c.Count) {
+// 		delete(m.chunks, c.Key)
+// 		go m.build(c.Key, cs)
+// 	} else {
+// 		m.chunks[c.Key] = cs
+// 	}
+// }
+
 type merger struct {
 	mu     sync.Mutex
 	chunks map[Key][]*Chunk
@@ -219,6 +295,36 @@ func (f *forwarder) Forward(b *Block) error {
 	_, err = c.Write(b.Payload)
 	return err
 }
+
+// TODO: make it as runMerge (shorter than current)
+// func runMergeBis(cmd *cli.Command, args []string) error {
+// 	if err := cmd.Flag.Parse(args); err != nil {
+// 		return err
+// 	}
+// 	addrs := cmd.Flag.Args()
+// 	f, err := Forward(addrs[1:]...)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer f.Close()
+// 	m, err := Merge(cmd.Flag.Arg(0))
+// 	if err != nil {
+// 		return err
+// 	}
+// 	for {
+// 		switch b, err := m.Next(); err {
+// 		case nil:
+// 			if err := f.Forward(b); err != nil {
+// 				return err
+// 			}
+// 		case ErrDone:
+// 			return nil
+// 		default:
+// 			return err
+// 		}
+// 	}
+// 	return nil
+// }
 
 func runMerge(cmd *cli.Command, args []string) error {
 	discard := cmd.Flag.Bool("d", false, "discard")

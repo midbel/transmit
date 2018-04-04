@@ -21,7 +21,7 @@ import (
 )
 
 type Block struct {
-	Id      uint16
+	Id      uint32
 	Sum     []byte
 	Payload []byte
 	Port    uint16
@@ -279,7 +279,7 @@ func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
 		logger.Printf("%6d | %9d | %x | %24s | %24s", i, c, sum, time.Since(w), time.Since(now))
 
 		b := &Block{
-			Id:      uint16(i),
+			Id:      uint32(i),
 			Sum:     sum[:],
 			Port:    p,
 			Addr:    addr,
