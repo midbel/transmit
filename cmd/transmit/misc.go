@@ -165,6 +165,7 @@ func runSimulate(cmd *cli.Command, args []string) error {
 	cmd.Flag.Var(&size, "s", "write packets of size byts to group")
 	cmd.Flag.Var(&rate, "t", "rate limiting")
 	cmd.Flag.BoolVar(&size.Alea, "r", false, "write packets of random size with upper limit set to to size")
+	datadir := cmd.Flag.String("d", "", "datadir")
 	every := cmd.Flag.Duration("e", time.Second, "write a packet every given elapsed interval")
 	count := cmd.Flag.Int("c", 0, "write count packets to group then exit")
 	quiet := cmd.Flag.Bool("q", false, "suppress write debug information on stderr")
@@ -205,9 +206,25 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				writer = ratelimit.Writer(writer, b)
 			}
 			var reader io.Reader
-			if *zero {
+			switch infos, err := ioutil.ReadDir(*datadir); {
+			case err == nil:
+				rs := make([]io.Reader, 0, len(infos))
+				for _, i := range infos {
+					if i.IsDir() {
+						continue
+					}
+					if f, err := os.Open(filepath.Join(*datadir, i.Name())); err == nil {
+						defer f.Close()
+						rs = append(rs, f)
+					}
+				}
+				if len(rs) == 0 {
+					return
+				}
+				reader = io.MultiReader(rs...)
+			case *zero:
 				reader = rw.Zero(int(size.Sum()))
-			} else {
+			default:
 				reader = rw.Rand()
 			}
 			logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
