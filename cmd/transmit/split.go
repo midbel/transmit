@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
@@ -20,6 +21,11 @@ import (
 	"github.com/midbel/transmit"
 )
 
+type addr struct {
+	Src, Dst uint16
+	IP       string
+}
+
 type Block struct {
 	Id      uint32
 	Sum     []byte
@@ -28,8 +34,81 @@ type Block struct {
 	Addr    *net.TCPAddr
 }
 
+func (b *Block) Stream() addr {
+	a := b.Addr
+	if a == nil {
+		a.IP, a.Port = net.ParseIP("127.0.0.1"), int(b.Port)
+	}
+	return addr{Src: uint16(b.Addr.Port), Dst: b.Port, IP: b.Addr.String()}
+}
+
 func (b *Block) Chunks() []*Chunk {
 	return nil
+}
+
+type BlockList struct {
+	next  uint32
+	queue BlockQueue
+}
+
+func List() *BlockList {
+	q := make(BlockQueue, 0)
+	heap.Init(&q)
+	return &BlockList{next: 1, queue: q}
+}
+
+func (b *BlockList) Pop() *Block {
+	if b.queue.Len() == 0 {
+		return nil
+	}
+	x := heap.Pop(&b.queue)
+	if x == nil {
+		return nil
+	}
+	k := x.(*Block)
+	if k.Id == b.next {
+		b.next = k.Id + 1
+		return k
+	}
+	b.Push(k)
+	return nil
+}
+
+func (b *BlockList) Push(k *Block) {
+	heap.Push(&b.queue, k)
+}
+
+type BlockQueue []*Block
+
+func (q *BlockQueue) Push(x interface{}) {
+	b, ok := x.(*Block)
+	if !ok {
+		return
+	}
+	*q = append(*q, b)
+}
+
+func (q *BlockQueue) Pop() interface{} {
+	if len(*q) == 0 {
+		return nil
+	}
+	cs := *q
+	c := cs[len(cs)-1]
+	*q = cs[:len(cs)-1]
+
+	return c
+}
+
+func (q BlockQueue) Len() int {
+	return len(q)
+}
+
+func (q BlockQueue) Less(i, j int) bool {
+	return q[i].Id <= q[j].Id
+}
+
+func (q BlockQueue) Swap(i, j int) {
+	q[i], q[j] = q[j], q[i]
 }
 
 type Limiter struct {
@@ -120,7 +199,7 @@ func (s *splitter) Split(b *Block) error {
 		w.Write(b.Addr.IP.To16())
 		binary.Write(w, binary.BigEndian, uint16(b.Addr.Port))
 		binary.Write(w, binary.BigEndian, b.Port)
-		binary.Write(w, binary.BigEndian, seq)
+		binary.Write(w, binary.BigEndian, b.Id)
 		binary.Write(w, binary.BigEndian, uint16(i))
 		binary.Write(w, binary.BigEndian, uint16(count))
 		binary.Write(w, binary.BigEndian, uint16(n))
