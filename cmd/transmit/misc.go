@@ -12,11 +12,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
+	"github.com/midbel/rustine"
 	"github.com/midbel/rustine/rw"
 	"github.com/midbel/transmit"
 )
@@ -24,7 +26,7 @@ import (
 const DefaultSize = 1024
 
 func runDumper(cmd *cli.Command, args []string) error {
-	// file := cmd.Flag.String("w", "", "file")
+	file := cmd.Flag.String("w", "", "file")
 	dump := cmd.Flag.Bool("x", false, "hexdump")
 	perf := cmd.Flag.Bool("p", false, "bandwidth")
 	if err := cmd.Flag.Parse(args); err != nil {
@@ -47,15 +49,15 @@ func runDumper(cmd *cli.Command, args []string) error {
 		if *dump {
 			go io.Copy(w, a)
 		} else if *perf {
-			go dumpStats(a)
+			go dumpStats(a, *file)
 		} else {
-			go dumpPackets(a)
+			go dumpPackets(a, *file)
 		}
 	}
 	return nil
 }
 
-func dumpStats(c net.Conn) {
+func dumpStats(c net.Conn, f string) {
 	const megabits = cli.Mega * 8.0
 	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", c.RemoteAddr()), log.Ltime)
 
@@ -63,9 +65,16 @@ func dumpStats(c net.Conn) {
 
 	now, total, avg := time.Now(), 0.0, 0.0
 	values := make([]float64, 10)
+	var r io.Reader
+	if f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat")); err == nil {
+		defer f.Close()
+		r = io.TeeReader(c, f)
+	} else {
+		r = c
+	}
 	for i := 1; ; i++ {
 		c.SetReadDeadline(time.Now().Add(time.Second))
-		n, err := io.Copy(w, c)
+		n, err := io.Copy(w, r)
 		w.Reset()
 		if err, ok := err.(net.Error); ok && err.Timeout() {
 			size := float64(n) * 8
@@ -97,7 +106,7 @@ func dumpStats(c net.Conn) {
 	}
 }
 
-func dumpPackets(c net.Conn) {
+func dumpPackets(c net.Conn, f string) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println(err)
@@ -115,7 +124,14 @@ func dumpPackets(c net.Conn) {
 		count uint64
 	)
 	w, roll := time.Now(), adler32.New()
-	r := io.TeeReader(c, roll)
+
+	var r io.Reader
+	if f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat")); err == nil {
+		defer f.Close()
+		r = io.TeeReader(c, io.MultiWriter(f, roll))
+	} else {
+		r = io.TeeReader(c, roll)
+	}
 
 	for n := time.Now(); ; n = time.Now() {
 		binary.Read(r, binary.BigEndian, &size)
