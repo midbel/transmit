@@ -1,0 +1,5 @@
+transmit ([version]) whatever; urgency=medium
+
+  * version to be validated
+
+ -- [maintainer] <[email]>  [date]

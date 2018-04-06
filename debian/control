@@ -1,0 +1,8 @@
+Package: transmit
+Version: [version]
+Section: misc
+Priority: extra
+Architecture: [arch]
+Installed-Size: [size]
+Description: enhance packets transmission from one network to another
+Maintainer: [maintainer] <[email]>
