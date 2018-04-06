@@ -15,15 +15,18 @@ build:
 	. ./envvars
 	$(GOBUILD) -ldflags $(LDFLAGS) -o $(GOBIN)/$(BINARY) $(SOURCE)
 
-DEPSLIST =
+DEPSLIST = \
+	github.com/juju/ratelimit \
+	github.com/midbel/cli \
+	github.com/midbel/rustine \
+	github.com/midbel/rustine/rw \
+	github.com/midbel/toml \
+	github.com/midbel/transmit \
 
 deps:
-	$(GOGET) github.com/juju/ratelimit
-	$(GOGET) github.com/midbel/cli
-	$(GOGET) github.com/midbel/rustine
-	$(GOGET) github.com/midbel/rustine/rw
-	$(GOGET) github.com/midbel/toml
-	$(GOGET) github.com/midbel/transmit
+	for i in $(DEPSLIST); do \
+		$(GOGET) $$i
+	done
 
 clean:
 	rm -f $(GOBIN)/$(BINARY)
