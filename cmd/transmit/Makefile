@@ -25,7 +25,7 @@ DEPSLIST = \
 
 deps:
 	for i in $(DEPSLIST); do \
-		$(GOGET) $$i
+		$(GOGET) $$i; \
 	done
 
 clean:
