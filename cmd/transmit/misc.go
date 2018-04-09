@@ -65,12 +65,13 @@ func dumpStats(c net.Conn, f string) {
 
 	now, total, avg := time.Now(), 0.0, 0.0
 	values := make([]float64, 10)
-	var r io.Reader
-	if f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat")); err == nil {
-		defer f.Close()
-		r = io.TeeReader(c, f)
-	} else {
-		r = c
+	var r io.Reader = c
+	if i, err := os.Stat(f); err == nil && i.IsDir() {
+		f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat"))
+		if err == nil {
+			defer f.Close()
+			r = io.TeeReader(c, f)
+		}
 	}
 	for i := 1; ; i++ {
 		c.SetReadDeadline(time.Now().Add(time.Second))
@@ -125,12 +126,13 @@ func dumpPackets(c net.Conn, f string) {
 	)
 	w, roll := time.Now(), adler32.New()
 
-	var r io.Reader
-	if f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat")); err == nil {
-		defer f.Close()
-		r = io.TeeReader(c, io.MultiWriter(f, roll))
-	} else {
-		r = io.TeeReader(c, roll)
+	r := io.TeeReader(c, roll)
+	if i, err := os.Stat(f); err == nil && i.IsDir() {
+		f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat"))
+		if err == nil {
+			defer f.Close()
+			r = io.TeeReader(c, io.MultiWriter(f, roll))
+		}
 	}
 
 	for n := time.Now(); ; n = time.Now() {
