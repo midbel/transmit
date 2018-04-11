@@ -35,16 +35,18 @@ var commands = []*cli.Command{
 	},
 	{
 		Run:   runSimulate,
-		Usage: "simulate [-q] [-r] [-e] [-c] [-s] [-p] <host:port...>",
+		Usage: "simulate [-q] [-r] [-e] [-c] [-s] [-p] [-z] [-t] <host:port...>",
 		Short: "generate random packets and send them to the specify addresses",
 		Alias: []string{"generate", "sim", "gen"},
 		Desc: `
 
 options:
-	-c proto  use the specify protocol (tcp or udp)
+	-p proto  use the specify protocol (tcp or udp)
 	-c count  write count packets to group then exit
 	-e every  write a packet every given elapsed interval to group
 	-s size   write packet of size bytes to group
+	-t rate   limit outgoing bandwidth
+	-z        write packet with only zeros
 	-r        write packet of random size to group with upper limit set to size
 	-q        suppress debug information from stderr
 `,
