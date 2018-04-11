@@ -21,6 +21,7 @@ import (
 	"github.com/midbel/rustine"
 	"github.com/midbel/rustine/rw"
 	"github.com/midbel/transmit"
+	"golang.org/x/sync/errgroup"
 )
 
 const DefaultSize = 1024
@@ -32,29 +33,36 @@ func runDumper(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	c, err := net.Listen("tcp", cmd.Flag.Arg(0))
-	if err != nil {
-		return err
-	}
-	defer c.Close()
 	w := hex.Dumper(os.Stdout)
-	for {
-		a, err := c.Accept()
-		if err != nil {
-			return err
-		}
-		if c, ok := a.(*net.TCPConn); ok {
-			c.SetKeepAlive(true)
-		}
-		if *dump {
-			go io.Copy(w, a)
-		} else if *perf {
-			go dumpStats(a, *file)
-		} else {
-			go dumpPackets(a, *file)
-		}
+
+	var g errgroup.Group
+	for _, a := range cmd.Flag.Args() {
+		a := a
+		g.Go(func() error {
+			c, err := net.Listen("tcp", a)
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+			for {
+				a, err := c.Accept()
+				if err != nil {
+					return err
+				}
+				if c, ok := a.(*net.TCPConn); ok {
+					c.SetKeepAlive(true)
+				}
+				if *dump {
+					go io.Copy(w, a)
+				} else if *perf {
+					go dumpStats(a, *file)
+				} else {
+					go dumpPackets(a, *file)
+				}
+			}
+		})
 	}
-	return nil
+	return g.Wait()
 }
 
 func dumpStats(c net.Conn, f string) {
