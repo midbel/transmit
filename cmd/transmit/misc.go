@@ -250,7 +250,11 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				binary.Write(buf, binary.BigEndian, int64(z))
 				binary.Write(buf, binary.BigEndian, uint32(i))
 				binary.Write(buf, binary.BigEndian, uint16(0))
-				if _, err := io.CopyN(buf, r, z); err != nil {
+				// if _, err := io.CopyN(buf, r, z); err != nil {
+				// 	break
+				// }
+				n, _ := io.CopyN(buf, r, z)
+				if n == 0 {
 					break
 				}
 				crc := adler32.Checksum(buf.Bytes())
