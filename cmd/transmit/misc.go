@@ -131,15 +131,17 @@ func dumpPackets(c net.Conn, f string) {
 		crc   uint32
 		total uint64
 		count uint64
+		block uint64
 	)
 	w, roll := time.Now(), adler32.New()
 
 	r := io.TeeReader(c, roll)
+	var tee io.Reader = r
 	if i, err := os.Stat(f); err == nil && i.IsDir() {
 		f, err := os.Create(filepath.Join(f, rustine.RandomString(8)+".dat"))
 		if err == nil {
 			defer f.Close()
-			r = io.TeeReader(c, io.MultiWriter(f, roll))
+			tee = io.TeeReader(c, io.MultiWriter(f, roll))
 		}
 	}
 
@@ -149,12 +151,15 @@ func dumpPackets(c net.Conn, f string) {
 		binary.Read(r, binary.BigEndian, &port)
 
 		bs := make([]byte, int(size))
-		if n, err := io.ReadFull(r, bs); err != nil || n == 0 {
+		if n, err := io.ReadFull(tee, bs); err != nil && n == 0 {
 			break
+		} else {
+			block += uint64(n)
 		}
 		got := roll.Sum32()
 		binary.Read(r, binary.BigEndian, &crc)
 		if crc != got {
+			log.Printf("invalid crc %x %x", crc, got)
 			return
 		}
 		total += uint64(size) + 14
@@ -164,7 +169,7 @@ func dumpPackets(c net.Conn, f string) {
 	}
 	elapsed := time.Since(w)
 	volume := float64(total) / 1024
-	logger.Printf("%d packets read %s (%.2fKB, %.2f Mbps)", count, elapsed, volume, ((volume/1024)*8)/elapsed.Seconds())
+	logger.Printf("%d packets (%dbytes) read %s (%.2fKB, %.2f Mbps)", count, block, elapsed, volume, ((volume/1024)*8)/elapsed.Seconds())
 }
 
 func runSimulate(cmd *cli.Command, args []string) error {
@@ -244,18 +249,19 @@ func runSimulate(cmd *cli.Command, args []string) error {
 			s, n := md5.New(), time.Now()
 			r, buf := io.TeeReader(reader, s), new(bytes.Buffer)
 			for i := 0; *count <= 0 || i < *count; i++ {
+				s.Reset()
+				buf.Reset()
 				time.Sleep(*every)
 
 				z := size.Int()
-				binary.Write(buf, binary.BigEndian, int64(z))
-				binary.Write(buf, binary.BigEndian, uint32(i))
-				binary.Write(buf, binary.BigEndian, uint16(0))
-				// if _, err := io.CopyN(buf, r, z); err != nil {
-				// 	break
-				// }
-				n, _ := io.CopyN(buf, r, z)
-				if n == 0 {
+				b := new(bytes.Buffer)
+				if n, _ := io.CopyN(b, r, z); n == 0 {
 					break
+				} else {
+					binary.Write(buf, binary.BigEndian, int64(n))
+					binary.Write(buf, binary.BigEndian, uint32(i))
+					binary.Write(buf, binary.BigEndian, uint16(0))
+					io.Copy(buf, b)
 				}
 				crc := adler32.Checksum(buf.Bytes())
 				binary.Write(buf, binary.BigEndian, crc)
@@ -266,8 +272,6 @@ func runSimulate(cmd *cli.Command, args []string) error {
 				}
 				sum += z
 				logger.Printf("%9d | %6d | %6d | %x | %16s | %16s | %08x", z, i+1, 0, s.Sum(nil), time.Since(w), time.Since(n), crc)
-				s.Reset()
-				buf.Reset()
 			}
 			c.Close()
 			wg.Done()
