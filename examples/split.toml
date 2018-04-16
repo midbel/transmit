@@ -1,8 +1,9 @@
 address = "192.168.1.1:35987"
-clock   = "system"
+system  = true
 rate    = "8M"
 block   = 1200
 count   = 4
+buffer  = "32K"
 
 [[route]]
 address = "localhost:10021"

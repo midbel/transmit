@@ -66,6 +66,11 @@ options:
 		Desc:  ``,
 	},
 	{
+		Run: runSplit2,
+		Usage: "split2 <config.toml>",
+		Short: "split and send fragmented packets",
+	},
+	{
 		Run:   runSplit,
 		Usage: "split [-b] [-n] [-k] [-f] [-r] [-s] [-y] <remote> <local,...>",
 		Alias: []string{"disassemble"},

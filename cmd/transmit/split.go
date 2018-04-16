@@ -18,7 +18,9 @@ import (
 
 	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
+	"github.com/midbel/toml"
 	"github.com/midbel/transmit"
+	"golang.org/x/sync/errgroup"
 )
 
 type addr struct {
@@ -170,7 +172,8 @@ func Split(a string, n, s int, k Limiter) (*splitter, error) {
 		block:   uint16(s),
 	}
 	for i := 0; i < n; i++ {
-		c, err := transmit.Proxy(a, nil)
+		// c, err := transmit.Proxy(a, nil)
+		c, err := net.Dial("tcp", a)
 		if err != nil {
 			return nil, err
 		}
@@ -241,6 +244,65 @@ func (s *splitter) Close() error {
 		}
 	}
 	return err
+}
+
+type channel struct {
+	Addr  string   `toml:"address"`
+	Keep  bool     `toml:"keep"`
+	Count int      `toml:"count"`
+	Block cli.Size `toml:"block"`
+	Rate  cli.Size `toml:"rate"`
+}
+
+func (c channel) Options(buf cli.Size, syst bool) *SplitOptions {
+	i := Limiter {
+		Rate: c.Rate,
+		Keep: c.Keep,
+		Syst: syst,
+	}
+	return &SplitOptions {
+		Limiter: i,
+		Length: buf,
+		Block: c.Block,
+		Count: c.Count,
+	}
+}
+
+func runSplit2(cmd *cli.Command, args []string) error {
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+	f, err := os.Open(cmd.Flag.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	v := struct {
+		Addr     string    `toml:"address"`
+		Rate     cli.Size  `toml:"rate"`
+		Block    cli.Size  `toml:"block"`
+		Length   cli.Size  `toml:"buffer"`
+		Syst     bool      `toml:"system"`
+		Count    int       `toml:"count"`
+		Channels []channel `toml:"route"`
+	}{}
+	if err := toml.NewDecoder(f).Decode(&v); err != nil {
+		return err
+	}
+	var g errgroup.Group
+	for _, c := range v.Channels {
+		o := c.Options(v.Length, v.Syst)
+		g.Go(func() error {
+			err := listenAndSplit(c.Addr, v.Addr, *o)
+			if err != nil {
+				log.Println(err)
+			}
+			return err
+		})
+	}
+
+	return g.Wait()
 }
 
 func runSplit(cmd *cli.Command, args []string) error {
