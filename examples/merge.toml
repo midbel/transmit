@@ -1,0 +1,9 @@
+address = ":35987"
+
+[[channel]]
+port    = 41001
+address = "localhost:21001"
+
+[[channel]]
+port    = 41002
+address = "localhost:21002"
