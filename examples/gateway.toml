@@ -1,0 +1,24 @@
+address = "0.0.0.0:9547"
+
+[certificate]
+cert     = "var/tls/server/transmit.pem"
+key      = "var/tls/server/transmit.key"
+server   = "gateway.foobar.org"
+policy   = ""
+insecure = false
+root     = "var/tls/pool/"
+
+[[route]]
+port = 41001
+proto = "udp"
+address = "224.0.0.1:41001"
+
+[[route]]
+port = 41002
+proto = "udp"
+address = "224.0.0.1:41002"
+
+[[route]]
+port    = 41001
+proto   = "tcp"
+address = "localhost:5987"

@@ -1,0 +1,24 @@
+address = "192.168.1.1:9547"
+#rate    = "8Mb"
+
+[certificate]
+cert     = "var/tls/client/transmit.pem"
+key      = "var/tls/client/transmit.key"
+server   = "relay.foobar.org"
+insecure = false
+root     = "var/tls/pool/"
+
+
+[bandwidth]
+rate = 4.0
+capacity = 32
+
+[[route]]
+port  = 41001
+buffer = 8192
+group = "239.0.0.1:31001"
+
+[[route]]
+port  = 41002
+buffer = 2048
+group = "239.0.0.1:31002"

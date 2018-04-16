@@ -1,0 +1,26 @@
+address = "192.168.1.1:35987"
+clock   = "system"
+rate    = "8M"
+block   = 1200
+count   = 4
+
+[[route]]
+address = "localhost:10021"
+count = 8
+rate  = "4M"
+block = 1200
+keep  = true
+
+[[route]]
+address = "localhost:10022"
+count = 4
+rate  = "16M"
+block = 1200
+keep  = true
+
+[[route]]
+address = "localhost:10023"
+count = 4
+rate  = "16M"
+block = 1200
+keep  = true
