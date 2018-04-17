@@ -66,9 +66,14 @@ options:
 		Desc:  ``,
 	},
 	{
-		Run: runSplit2,
+		Run:   runSplit2,
 		Usage: "split2 <config.toml>",
 		Short: "split and send fragmented packets",
+	},
+	{
+		Run:   runMerge2,
+		Usage: "merge2 <config.toml>",
+		Short: "merge and send fragmented packets",
 	},
 	{
 		Run:   runSplit,
@@ -77,13 +82,19 @@ options:
 		Short: "split and send fragmented packets",
 		Desc: `
 options:
-  -b block  split incoming packets by chunks of block bytes
-  -n count  use count outgoing connection(s)
-  -k keep   use same rate for all outgoing connections(s)
-  -r rate   specify bandwidth by requested connections
-  -f fill   capacity of the bucket used to limit bandwidth
-  -s size   buffer to read from incoming connections
-  -y        use system clock
+  -b block  split incoming packets by chunks of block bytes (default: 1K)
+  -n count  use count outgoing connection(s) (default: 4)
+  -k keep   use same rate for all outgoing connections(s) (default: false)
+  -r rate   specify bandwidth by requested connections (default: 8m)
+  -f fill   capacity of the bucket used to limit bandwidth (default: 8m)
+  -s size   buffer to read from incoming connections (default: 32K)
+  -y        use system clock (default: false)
+
+notes on UNIT:
+b, k, kb, m, mb, g, gb   bits, kilobits, megabits and gigabits (the b is not required for k, m and g)
+B, K, KB, M, MB, G, GB   bytes, kilobytes, megabytes and gigabytes (the B is not required for K, M and G)
+
+The default unit assumed when no unit is given is the bytes.
 `,
 	},
 	{
