@@ -13,7 +13,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"sync/atomic"
+	// "sync/atomic"
 	"time"
 
 	"github.com/juju/ratelimit"
@@ -183,8 +183,6 @@ func Split(a string, n, s int, k Limiter) (*splitter, error) {
 }
 
 func (s *splitter) Split(b *Block) error {
-	// TODO: try to make it a kind of multiwriter
-	seq := atomic.AddUint32(&s.sequence, 1)
 	count, mod := len(b.Payload)/int(s.block), len(b.Payload)%int(s.block)
 	if mod != 0 {
 		count++
@@ -192,7 +190,7 @@ func (s *splitter) Split(b *Block) error {
 	roll := adler32.New()
 	vs := make([]byte, int(s.block))
 
-	t := time.Now()
+	var g errgroup.Group
 	for i, r := 0, bytes.NewReader(b.Payload); r.Len() > 0; i++ {
 		n, _ := r.Read(vs)
 		roll.Write(vs[:n])
@@ -211,20 +209,21 @@ func (s *splitter) Split(b *Block) error {
 		binary.Write(w, binary.BigEndian, roll.Sum32())
 
 		// TODO: speed up fragment writing by running each write in its own goroutine
-		// TODO: maybe limited by a sema (chan struct{})
-		// TODO: Write should exit as soon as any goroutine meet first an error
 		// go func(w io.Writer, r io.Reader) {
 		// 	if _, err := io.Copy(w, r); err != nil {
 		//
 		// 	}
 		// }(s.nextWriter(), w)
-
-		if _, err := io.Copy(s.nextWriter(), w); err != nil {
+		c := s.nextWriter()
+		g.Go(func() error {
+			_, err := io.Copy(c, w)
 			return err
-		}
+		})
+		// if _, err := io.Copy(s.nextWriter(), w); err != nil {
+		// 	return err
+		// }
 	}
-	s.logger.Printf("%6d | %6d | %9d | %x | %16s | %16s", seq, count, len(b.Payload), b.Sum, time.Since(t), time.Since(s.dtstamp))
-	return nil
+	return g.Wait()
 }
 
 func (s *splitter) nextWriter() io.Writer {
@@ -372,6 +371,7 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 	defer ws.Close()
 
 	queue := make(chan *Block, 1000)
+	defer close(queue)
 	switch s.Proto {
 	case "tcp", "unix":
 		a, err := net.Listen(s.Proto, local)
@@ -389,20 +389,6 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 				go handle(c, uint16(port), int(s.Length.Int()), queue)
 			}
 		}()
-	case "udp":
-		// TODO: write a dedicated handle function to deal with UDP connection
-		a, err := net.ResolveUDPAddr(s.Proto, local)
-		if err != nil {
-			return err
-		}
-		c, err := net.ListenUDP(s.Proto, a)
-		if err != nil {
-			return err
-		}
-		defer c.Close()
-
-		queue := make(chan *Block, 1000)
-		go handle(c, uint16(port), int(s.Length.Int()), queue)
 	default:
 		return fmt.Errorf("unsupported protocol %q", s.Proto)
 	}
@@ -415,23 +401,16 @@ func listenAndSplit(local, remote string, s SplitOptions) error {
 }
 
 func handle(c net.Conn, p uint16, n int, queue chan<- *Block) {
-	// TODO: try to create the chunk here instead of in the splitter
-	// NOTE: Block type could have a Chunks() function that return a slice of Chunk
 	defer c.Close()
 
 	addr := c.RemoteAddr().(*net.TCPAddr)
-	logger := log.New(os.Stderr, fmt.Sprintf("[%s] ", addr.String()), log.Ltime)
-
-	now := time.Now()
 	for i, bs := 1, make([]byte, n); ; i++ {
-		w := time.Now()
+		// w := time.Now()
 		c, err := c.Read(bs)
 		if c == 0 || err != nil {
 			return
 		}
 		sum := md5.Sum(bs[:c])
-		logger.Printf("%6d | %9d | %x | %24s | %24s", i, c, sum, time.Since(w), time.Since(now))
-
 		b := &Block{
 			Id:      uint32(i),
 			Sum:     sum[:],
