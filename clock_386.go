@@ -15,7 +15,8 @@ func (s *sysClock) Now() time.Time {
 
 func (s *sysClock) Sleep(d time.Duration) {
 	if d < s.threshold {
-		s.delay += d
+		// s.delay += d
+		s.delay = s.threshold
 	} else {
 		s.delay = d
 	}
@@ -47,5 +48,5 @@ func guessThreshold() time.Duration {
 		return time.Millisecond
 	}
 	a := now()
-	return a.Sub(b).Truncate(time.Millisecond)
+	return a.Sub(b)
 }
