@@ -255,18 +255,24 @@ type channel struct {
 }
 
 func (c channel) Options(buf cli.Size, syst bool) *SplitOptions {
-	i := Limiter {
+	i := Limiter{
 		Rate: c.Rate,
 		Keep: c.Keep,
 		Syst: syst,
 	}
-	return &SplitOptions {
+	return &SplitOptions{
+		Proto:  "tcp",
 		Limiter: i,
-		Length: buf,
-		Block: c.Block,
-		Count: c.Count,
+		Length:  buf,
+		Block:   c.Block,
+		Count:   c.Count,
 	}
 }
+
+var (
+	LimitBandwidth = 0
+	LimitListener  = 0
+)
 
 func runSplit2(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
@@ -290,10 +296,14 @@ func runSplit2(cmd *cli.Command, args []string) error {
 	if err := toml.NewDecoder(f).Decode(&v); err != nil {
 		return err
 	}
+	if LimitListener > 0 && len(v.Channels) > LimitListener {
+		return fmt.Errorf("too many listening connections configured (max allowed %d)", LimitListener)
+	}
 	var g errgroup.Group
 	for _, c := range v.Channels {
-		o := c.Options(v.Length, v.Syst)
+		c := c
 		g.Go(func() error {
+			o := c.Options(v.Length, v.Syst)
 			err := listenAndSplit(c.Addr, v.Addr, *o)
 			if err != nil {
 				log.Println(err)
@@ -322,6 +332,9 @@ func runSplit(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&s.Proto, "p", "tcp", "protocol")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
+	}
+	if LimitListener > 0 && cmd.Flag.NArg()-1 > LimitListener {
+		return fmt.Errorf("too many listening connections configured (max allowed %d)", LimitListener)
 	}
 	var wg sync.WaitGroup
 	wg.Add(cmd.Flag.NArg() - 1)

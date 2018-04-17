@@ -10,10 +10,12 @@ import (
 	"io"
 	// "log"
 	"net"
+	"os"
 	"sort"
 	"sync"
 
 	"github.com/midbel/cli"
+	"github.com/midbel/toml"
 )
 
 var (
@@ -177,7 +179,34 @@ type forwarder struct {
 	blocks map[addr]*BlockList
 }
 
+func ForwardMap(as map[string][]uint16) (*forwarder, error) {
+	f := &forwarder{
+		addrs:  make(map[uint16]net.Addr),
+		conns:  make(map[addr]net.Conn),
+		blocks: make(map[addr]*BlockList),
+	}
+	for a, ps := range as {
+		a, err := net.ResolveTCPAddr("tcp", a)
+		if err != nil {
+			return nil, err
+		}
+		if len(ps) == 0 {
+			f.addrs[uint16(a.Port)] = a
+		} else {
+			for _, p := range ps {
+				f.addrs[p] = a
+			}
+		}
+	}
+	return f, nil
+}
+
 func Forward(as ...string) (*forwarder, error) {
+	// vs := make(map[string][]uint16)
+	// for _, a := range as {
+	// 	vs[a] = nil
+	// }
+	// return ForwardMap(vs)
 	f := &forwarder{
 		addrs:  make(map[uint16]net.Addr),
 		conns:  make(map[addr]net.Conn),
@@ -224,6 +253,55 @@ func (f *forwarder) Forward(b *Block) error {
 	return nil
 }
 
+type mapping struct {
+	Addr  string   `toml:"address"`
+	Ports []uint16 `toml:"port"`
+}
+
+func runMerge2(cmd *cli.Command, args []string) error {
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+	r, err := os.Open(cmd.Flag.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	c := struct {
+		Addr string `toml:"address"`
+		Mappings []mapping `toml:"channel"`
+	}{}
+	if err := toml.NewDecoder(r).Decode(&c); err != nil {
+		return err
+	}
+	as := make(map[string][]uint16)
+	for _, c := range c.Mappings {
+		as[c.Addr] = c.Ports
+	}
+	f, err := ForwardMap(as)
+	if err != nil {
+		return err
+	}
+	m, err := Merge(c.Addr)
+	if err != nil {
+		return err
+	}
+	for {
+		switch b, err := m.Next(); err {
+		case nil:
+			if err := f.Forward(b); err != nil {
+				return err
+			}
+		case ErrDone:
+			return nil
+		default:
+			return err
+		}
+	}
+	return nil
+}
+
 func runMerge(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -233,7 +311,6 @@ func runMerge(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	// defer f.Close()
 	m, err := Merge(cmd.Flag.Arg(0))
 	if err != nil {
 		return err
