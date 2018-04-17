@@ -77,7 +77,7 @@ options:
 	},
 	{
 		Run:   runSplit,
-		Usage: "split [-b] [-n] [-k] [-f] [-r] [-s] [-y] <remote> <local,...>",
+		Usage: "split [-b] [-n] [-k] [-r] [-s] [-y] <remote> <local,...>",
 		Alias: []string{"disassemble"},
 		Short: "split and send fragmented packets",
 		Desc: `
@@ -86,7 +86,6 @@ options:
   -n count  use count outgoing connection(s) (default: 4)
   -k keep   use same rate for all outgoing connections(s) (default: false)
   -r rate   specify bandwidth by requested connections (default: 8m)
-  -f fill   capacity of the bucket used to limit bandwidth (default: 8m)
   -s size   buffer to read from incoming connections (default: 32K)
   -y        use system clock (default: false)
 

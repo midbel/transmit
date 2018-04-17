@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"hash/adler32"
 	"io"
-	"log"
 	"net"
 	"os"
 	"strconv"
 	"sync"
-	// "sync/atomic"
 	"time"
 
 	"github.com/juju/ratelimit"
@@ -115,7 +113,6 @@ func (q BlockQueue) Swap(i, j int) {
 
 type Limiter struct {
 	Rate cli.Size
-	Fill cli.Size
 	Keep bool
 	Syst bool
 }
@@ -134,11 +131,7 @@ func (i Limiter) Writer(w io.Writer, c int) io.Writer {
 	} else {
 		k = transmit.RealClock()
 	}
-	y := r.Int()
-	if i.Fill > 0 {
-		y = i.Fill.Int()
-	}
-	b := ratelimit.NewBucketWithRateAndClock(r.Float(), y, k)
+	b := ratelimit.NewBucketWithRateAndClock(r.Float(), r.Int(), k)
 	return ratelimit.Writer(w, b)
 }
 
@@ -151,7 +144,6 @@ type SplitOptions struct {
 }
 
 type splitter struct {
-	logger  *log.Logger
 	dtstamp time.Time
 	conns   []net.Conn
 
@@ -165,7 +157,6 @@ type splitter struct {
 
 func Split(a string, n, s int, k Limiter) (*splitter, error) {
 	wc := splitter{
-		logger:  log.New(os.Stderr, "[send] ", log.Ltime),
 		dtstamp: time.Now(),
 		conns:   make([]net.Conn, n),
 		writers: make([]io.Writer, n),
@@ -303,11 +294,7 @@ func runSplit2(cmd *cli.Command, args []string) error {
 		c := c
 		g.Go(func() error {
 			o := c.Options(v.Length, v.Syst)
-			err := listenAndSplit(c.Addr, v.Addr, *o)
-			if err != nil {
-				log.Println(err)
-			}
-			return err
+			return listenAndSplit(c.Addr, v.Addr, *o)
 		})
 	}
 
@@ -317,12 +304,10 @@ func runSplit2(cmd *cli.Command, args []string) error {
 func runSplit(cmd *cli.Command, args []string) error {
 	var s SplitOptions
 	s.Rate, _ = cli.ParseSize("8m")
-	s.Fill, _ = cli.ParseSize("4K")
 	s.Length, _ = cli.ParseSize("32K")
 	s.Block, _ = cli.ParseSize("1K")
 
 	cmd.Flag.Var(&s.Rate, "r", "rate")
-	cmd.Flag.Var(&s.Fill, "f", "fill")
 	cmd.Flag.Var(&s.Length, "s", "size")
 	cmd.Flag.Var(&s.Block, "b", "block")
 	cmd.Flag.IntVar(&s.Count, "n", 4, "count")
@@ -335,18 +320,14 @@ func runSplit(cmd *cli.Command, args []string) error {
 	if LimitListener > 0 && cmd.Flag.NArg()-1 > LimitListener {
 		return fmt.Errorf("too many listening connections configured (max allowed %d)", LimitListener)
 	}
-	var wg sync.WaitGroup
-	wg.Add(cmd.Flag.NArg() - 1)
+	var g errgroup.Group
 	for i := 1; i < cmd.Flag.NArg(); i++ {
-		go func(a string) {
-			defer wg.Done()
-			if err := listenAndSplit(a, cmd.Flag.Arg(0), s); err != nil {
-				log.Println(err)
-			}
-		}(cmd.Flag.Arg(i))
+		a := cmd.Flag.Arg(i)
+		g.Go(func() error {
+			return listenAndSplit(a, cmd.Flag.Arg(0), s)
+		})
 	}
-	wg.Wait()
-	return nil
+	return g.Wait()
 }
 
 func listenAndSplit(local, remote string, s SplitOptions) error {
