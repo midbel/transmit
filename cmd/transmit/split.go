@@ -115,24 +115,28 @@ type Limiter struct {
 	Rate cli.Size
 	Keep bool
 	Syst bool
+
+	bucket *ratelimit.Bucket
 }
 
 func (i Limiter) Writer(w io.Writer, c int) io.Writer {
 	if i.Rate == 0 {
 		return w
 	}
-	r := i.Rate
-	if !i.Keep {
-		r = i.Rate.Divide(c)
+	if i.bucket == nil {
+		r := i.Rate
+		if !i.Keep {
+			r = i.Rate.Divide(c)
+		}
+		var k transmit.Clock
+		if i.Syst {
+			k = transmit.SystemClock()
+		} else {
+			k = transmit.RealClock()
+		}
+		i.bucket = ratelimit.NewBucketWithRateAndClock(r.Float(), r.Int(), k)
 	}
-	var k transmit.Clock
-	if i.Syst {
-		k = transmit.SystemClock()
-	} else {
-		k = transmit.RealClock()
-	}
-	b := ratelimit.NewBucketWithRateAndClock(r.Float(), r.Int(), k)
-	return ratelimit.Writer(w, b)
+	return ratelimit.Writer(w, i.bucket)
 }
 
 type SplitOptions struct {
