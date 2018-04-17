@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juju/ratelimit"
@@ -115,28 +116,24 @@ type Limiter struct {
 	Rate cli.Size
 	Keep bool
 	Syst bool
-
-	bucket *ratelimit.Bucket
 }
 
 func (i Limiter) Writer(w io.Writer, c int) io.Writer {
 	if i.Rate == 0 {
 		return w
 	}
-	if i.bucket == nil {
-		r := i.Rate
-		if !i.Keep {
-			r = i.Rate.Divide(c)
-		}
-		var k transmit.Clock
-		if i.Syst {
-			k = transmit.SystemClock()
-		} else {
-			k = transmit.RealClock()
-		}
-		i.bucket = ratelimit.NewBucketWithRateAndClock(r.Float(), r.Int(), k)
+	r := i.Rate
+	if !i.Keep {
+		r = i.Rate.Divide(c)
 	}
-	return ratelimit.Writer(w, i.bucket)
+	var k transmit.Clock
+	if i.Syst {
+		k = transmit.SystemClock()
+	} else {
+		k = transmit.RealClock()
+	}
+	b := ratelimit.NewBucketWithRateAndClock(r.Float(), r.Int(), k)
+	return ratelimit.Writer(w, b)
 }
 
 type SplitOptions struct {
@@ -152,7 +149,7 @@ type splitter struct {
 	conns   []net.Conn
 
 	mu      sync.Mutex
-	current int
+	current uint32
 	writers []io.Writer
 
 	sequence uint32
@@ -167,7 +164,6 @@ func Split(a string, n, s int, k Limiter) (*splitter, error) {
 		block:   uint16(s),
 	}
 	for i := 0; i < n; i++ {
-		// c, err := transmit.Proxy(a, nil)
 		c, err := net.Dial("tcp", a)
 		if err != nil {
 			return nil, err
@@ -204,30 +200,21 @@ func (s *splitter) Split(b *Block) error {
 		binary.Write(w, binary.BigEndian, roll.Sum32())
 
 		// TODO: speed up fragment writing by running each write in its own goroutine
-		// go func(w io.Writer, r io.Reader) {
-		// 	if _, err := io.Copy(w, r); err != nil {
-		//
-		// 	}
-		// }(s.nextWriter(), w)
+		// if _, err := io.Copy(s.nextWriter(), w); err != nil {
+		// 	return err
+		// }
 		c := s.nextWriter()
 		g.Go(func() error {
 			_, err := io.Copy(c, w)
 			return err
 		})
-		// if _, err := io.Copy(s.nextWriter(), w); err != nil {
-		// 	return err
-		// }
 	}
 	return g.Wait()
 }
 
 func (s *splitter) nextWriter() io.Writer {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	w := s.writers[s.current]
-	s.current = (s.current + 1) % len(s.writers)
-	return w
+	i := atomic.AddUint32(&s.current, 1)
+	return s.writers[int(i)%len(s.writers)]
 }
 
 func (s *splitter) Close() error {

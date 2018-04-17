@@ -11,8 +11,7 @@ type Clock interface {
 }
 
 func SystemClock() Clock {
-	s := &sysClock{threshold: guessThreshold()}
-	return s
+	return &sysClock{threshold: guessThreshold()}
 }
 
 func RealClock() Clock {
