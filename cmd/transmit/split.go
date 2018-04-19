@@ -285,7 +285,7 @@ func runSplit2(cmd *cli.Command, args []string) error {
 		c := c
 		g.Go(func() error {
 			o := c.Options(v.Length, v.Syst)
-			return listenAndSplit(c.Addr, v.Addr, *o)
+			return listenAndSplit2(c.Addr, v.Addr, *o)
 		})
 	}
 
@@ -311,17 +311,67 @@ func runSplit(cmd *cli.Command, args []string) error {
 	if LimitListener > 0 && cmd.Flag.NArg()-1 > LimitListener {
 		return fmt.Errorf("too many listening connections configured (max allowed %d)", LimitListener)
 	}
+	ws, err := Split(cmd.Flag.Arg(0), s.Count, int(s.Block.Int()), s.Limiter)
+	if err != nil {
+		return err
+	}
+	defer ws.Close()
 	var g errgroup.Group
 	for i := 1; i < cmd.Flag.NArg(); i++ {
 		a := cmd.Flag.Arg(i)
 		g.Go(func() error {
-			return listenAndSplit(a, cmd.Flag.Arg(0), s)
+			return listenAndSplit(a, s.Proto, int(s.Length.Int()), ws)
 		})
 	}
 	return g.Wait()
 }
 
-func listenAndSplit(local, remote string, s SplitOptions) error {
+func listenAndSplit(local, proto string, block int, ws *splitter) error {
+	var port uint
+	if proto == "tcp" || proto == "udp" {
+		_, p, err := net.SplitHostPort(local)
+		if err != nil {
+			return err
+		}
+		if p, err := strconv.ParseUint(p, 10, 16); err != nil {
+			return err
+		} else {
+			port = uint(p)
+		}
+	} else {
+		defer os.Remove(local)
+	}
+	queue := make(chan *Block, 1000)
+	defer close(queue)
+	switch proto {
+	case "tcp", "unix":
+		a, err := net.Listen(proto, local)
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		go func() {
+			for {
+				c, err := a.Accept()
+				if err != nil {
+					return
+				}
+				go handle(c, uint16(port), block, queue)
+			}
+		}()
+	default:
+		return fmt.Errorf("unsupported protocol %q", proto)
+	}
+	for bs := range queue {
+		if err := ws.Split(bs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func listenAndSplit2(local, remote string, s SplitOptions) error {
 	var port uint
 	if s.Proto == "tcp" || s.Proto == "udp" {
 		_, p, err := net.SplitHostPort(local)
