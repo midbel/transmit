@@ -77,13 +77,23 @@ func (b *Bucket) refill(e time.Duration) {
 	c := float64(b.capacity*int64(e/time.Millisecond))/1000
 	c *= 1.01
 
+	ns := e.Nanoseconds()
+	sleep := func() {
+		i := syscall.NsecToTimespec(ns)
+		syscall.Nanosleep(&i, nil)
+	}
+
 	for {
-		time.Sleep(e)
+		// time.Sleep(e)
+		sleep()
 		if b.available > b.capacity {
 			continue
 		}
 		b.available = b.available + int64(c)
-		b.wait <- struct{}{}
+		select {
+		case b.wait <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -96,7 +106,8 @@ func main() {
 	buffer := flag.Int("b", 1024, "size")
 	listen := flag.Bool("l", false, "listen mode")
 	test := flag.Bool("t", false, "test mode")
-	every := flag.Duration("e", 250*time.Millisecond, "every")
+	every := flag.Duration("e", 8*time.Millisecond, "every")
+	wait := flag.Duration("w", 250*time.Millisecond, "wait")
 	flag.Parse()
 
 	var err error
@@ -120,7 +131,7 @@ func main() {
 				if r := rate.Int(); r > 0 {
 					b = NewBucket(r, *every)
 				}
-				return runClientWithRate(flag.Arg(0), *size, *buffer, *parallel, b)
+				return runClientWithRate(flag.Arg(0), *size, *buffer, *parallel, *wait, b)
 			})
 		}
 		err = g.Wait()
@@ -130,7 +141,7 @@ func main() {
 	}
 }
 
-func runClientWithRate(a string, z, b, p int, buck *Bucket) error {
+func runClientWithRate(a string, z, b, p int, e time.Duration, buck *Bucket) error {
 	defer log.Println("done client")
 	cs := make([]net.Conn, p)
 	ws := make([]io.Writer, p)
@@ -153,6 +164,7 @@ func runClientWithRate(a string, z, b, p int, buck *Bucket) error {
 
 	bs := make([]byte, z)
 	for {
+		time.Sleep(e)
 		var g errgroup.Group
 		buf := bytes.NewBuffer(bs)
 		for buf.Len() > 0 {
