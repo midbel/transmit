@@ -8,9 +8,9 @@ import (
 	"io/ioutil"
 	"net"
 	"time"
+	"sync"
 	"syscall"
 
-	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"golang.org/x/sync/errgroup"
 )
@@ -27,6 +27,64 @@ func (_ clock) Now() time.Time {
 func (_ clock) Sleep(t time.Duration) {
 	s := syscall.NsecToTimespec(t.Nanoseconds())
 	syscall.Nanosleep(&s, nil)
+}
+
+type writer struct {
+	inner io.Writer
+	bucket *Bucket
+}
+
+func Writer(w io.Writer, b *Bucket) io.Writer {
+	if b == nil {
+		return w
+	}
+	return &writer{w, b}
+}
+
+func (w *writer) Write(bs []byte) (int, error) {
+	w.bucket.Take(int64(len(bs)))
+	return w.inner.Write(bs)
+}
+
+type Bucket struct {
+	capacity int64
+
+	wait chan struct{}
+
+	mu sync.Mutex
+	available int64
+}
+
+func NewBucket(n int64, e time.Duration) *Bucket {
+	b := &Bucket{capacity: n, available: n, wait: make(chan struct{})}
+	go b.refill(e)
+	return b
+}
+
+func (b *Bucket) Take(n int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for {
+		if d := b.available-n; b.available > 0 && d >= n {
+			b.available = d
+			break
+		}
+		<-b.wait
+	}
+}
+
+func (b *Bucket) refill(e time.Duration) {
+	c := float64(b.capacity*int64(e/time.Millisecond))/1000
+	c *= 1.01
+
+	for {
+		time.Sleep(e)
+		if b.available > b.capacity {
+			continue
+		}
+		b.available = b.available + int64(c)
+		b.wait <- struct{}{}
+	}
 }
 
 func main() {
@@ -51,15 +109,18 @@ func main() {
 		if *count <= 0 {
 			*count = 1
 		}
-		var buck *ratelimit.Bucket
-		if r := rate.Float(); r > 0 {
-			c := r/float64(*count)
-			buck = ratelimit.NewBucketWithRateAndClock(r, int64(r+c), clock{})
-		}
+		// var b *Bucket
+		// if r := rate.Int(); r > 0 {
+		// 	b = NewBucket(r*int64(*count), *every)
+		// }
 		var g errgroup.Group
 		for i := 0; i < *count; i++ {
 			g.Go(func() error {
-				return runClient(flag.Arg(0), *size, *buffer, *parallel, buck)
+				var b *Bucket
+				if r := rate.Int(); r > 0 {
+					b = NewBucket(r, *every)
+				}
+				return runClientWithRate(flag.Arg(0), *size, *buffer, *parallel, b)
 			})
 		}
 		err = g.Wait()
@@ -69,7 +130,7 @@ func main() {
 	}
 }
 
-func runClient(a string, z, b, p int, buck *ratelimit.Bucket) error {
+func runClientWithRate(a string, z, b, p int, buck *Bucket) error {
 	defer log.Println("done client")
 	cs := make([]net.Conn, p)
 	ws := make([]io.Writer, p)
@@ -84,7 +145,7 @@ func runClient(a string, z, b, p int, buck *ratelimit.Bucket) error {
 		as = append(as, c.LocalAddr().String())
 		cs[i], ws[i] = c, c
 		if buck != nil {
-			ws[i] = ratelimit.Writer(c, buck)
+			ws[i] = Writer(c, buck)
 		}
 	}
 	log.Printf("start client (%v)", as)
@@ -139,15 +200,23 @@ func runServer(a string, z int) error {
 
 			var total float64
 			w := time.Now()
+
+			defer func() {
+				d := time.Since(w)
+				t := total/(1024*1024)
+				log.Printf("done with %s: %.2fMB (%.2fMBs)", c.RemoteAddr(), t, t/d.Seconds())
+			}()
 			for {
 				r.SetReadDeadline(time.Now().Add(time.Second))
 				c, err := io.CopyBuffer(ioutil.Discard, r, bs)
-				if err == io.EOF {
+				if err, ok := err.(net.Error); ok && err.Timeout() {
+					total += float64(c)
+					offset := time.Since(w)
+					t := total/(1024*1024)
+					log.Printf("%.2f | %.2f | %.2f | %s", float64(c)/(1024*1024), t, t/offset.Seconds(), offset)
+				} else {
 					return
 				}
-				total += float64(c)
-				offset := time.Since(w)
-				log.Printf("%.2f | %.2f | %.2f | %s", float64(c)/1024.0, total/1024.0, total/offset.Seconds(), offset)
 			}
 		}(c)
 	}
